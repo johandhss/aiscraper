@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="progress-container" style="max-width: 820px; margin: 2rem auto;">
+    <div class="card progress-card" style="box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); border-color: rgba(99, 102, 241, 0.25);">
+        
+        <!-- Header -->
+        <div class="flex-between" style="margin-bottom: 1.25rem;">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <div class="spinner" id="spinner"></div>
+                <div>
+                    <h2 id="progress-title" style="margin: 0; font-size: 1.3rem;">Scraping & Synthesizing {{ domain }}</h2>
+                    <div class="text-muted" id="progress-subtitle" style="font-size: 0.85rem; margin-top: 0.2rem;">
+                        Extracting DOM hierarchy, high-res screenshots, lazy images & AI category models
+                    </div>
+                </div>
+            </div>
+            <span id="pct-badge" class="badge badge-scraped" style="font-size: 0.9rem; padding: 0.4rem 0.8rem;">
+                0%
+            </span>
+        </div>
+        
+        <!-- Main Progress Bar -->
+        <div class="progress-bar-wrapper" style="height: 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); overflow: hidden; margin-bottom: 0.75rem;">
+            <div class="progress-bar" id="progress-bar" style="width: 0%; height: 100%; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); background: linear-gradient(90deg, #6366f1, #a855f7, #ec4899);"></div>
+        </div>
+
+        <!-- Progress Stats & Numbers -->
+        <div class="flex-between" style="font-size: 0.85rem; margin-bottom: 1rem;">
+            <div id="progress-stats" style="font-weight: 500; color: #e2e8f0;">Initializing scrape engine...</div>
+            <div id="page-count" class="text-muted" style="font-family: monospace;">0 / {{ total_pages or '?' }} Pages</div>
+        </div>
+        
+        <!-- Active Live Action Box -->
+        <div id="active-action-box" style="background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(99, 102, 241, 0.3); border-radius: 8px; padding: 0.85rem 1.1rem; margin-bottom: 1.25rem;">
+            <div style="font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; color: #818cf8; font-weight: 600; margin-bottom: 0.25rem;">
+                ⚡ Current Live Action:
+            </div>
+            <div id="current-action-text" style="font-size: 0.95rem; font-weight: 500; color: #fff; margin-bottom: 0.25rem;">
+                Preparing environment and connecting to Supabase...
+            </div>
+            <div class="progress-current-url" id="current-url" style="margin: 0; font-size: 0.75rem; color: #94a3b8; word-break: break-all;"></div>
+        </div>
+        
+        <!-- Live Detailed Log -->
+        <div style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.4rem; text-transform: uppercase; letter-spacing: 0.04em;">
+            📜 Live Activity Stream
+        </div>
+        <div class="progress-log" id="progress-log" style="max-height: 280px; background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border); border-radius: 6px; padding: 0.6rem; overflow-y: auto;"></div>
+        
+        <!-- Finish Actions -->
+        <div id="done-actions" style="display: none; margin-top: 1.75rem; text-align: center;">
+            <a href="/" class="btn" id="done-link" style="padding: 0.85rem 2.2rem; font-size: 1.05rem;">
+                🎉 View Scraped Knowledge Base →
+            </a>
+        </div>
+    </div>
+</div>
+
+<script>
+const jobId = "{{ job_id }}";
+const logEl = document.getElementById("progress-log");
+const barEl = document.getElementById("progress-bar");
+const statsEl = document.getElementById("progress-stats");
+const countEl = document.getElementById("page-count");
+const urlEl = document.getElementById("current-url");
+const actionTextEl = document.getElementById("current-action-text");
+const titleEl = document.getElementById("progress-title");
+const pctBadgeEl = document.getElementById("pct-badge");
+const spinnerEl = document.getElementById("spinner");
+const doneEl = document.getElementById("done-actions");
+const doneLinkEl = document.getElementById("done-link");
+
+function addLogLine(text, type = "info") {
+    const logLine = document.createElement("div");
+    logLine.className = "log-line " + (type === "error" ? "log-error" : (type === "success" ? "log-success" : ""));
+    const timeStr = new Date().toLocaleTimeString();
+    logLine.textContent = `[${timeStr}] ${text}`;
+    logEl.appendChild(logLine);
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
+const source = new EventSource(`/scrape/progress/${jobId}`);
+
+source.onmessage = function(event) {
+    const data = JSON.parse(event.data);
+    
+    if (data.phase === "complete") {
+        source.close();
+        spinnerEl.classList.add("done");
+        
+        if (data.result && data.result.success) {
+            titleEl.textContent = "✅ Scraping & Synthesis Complete!";
+            barEl.style.width = "100%";
+            barEl.classList.add("success");
+            pctBadgeEl.textContent = "100%";
+            pctBadgeEl.style.background = "rgba(34, 197, 94, 0.2)";
+            pctBadgeEl.style.color = "#4ade80";
+            statsEl.textContent = data.result.message;
+            actionTextEl.textContent = "All pages, full-page screenshots, images, and category syntheses stored!";
+            doneLinkEl.href = `/sites/${data.result.site_id}`;
+            doneLinkEl.textContent = "🚀 View Scraped Knowledge Base →";
+            addLogLine("🎉 Completed! " + data.result.message, "success");
+        } else {
+            titleEl.textContent = "❌ Scraping Encountered Issues";
+            barEl.classList.add("error");
+            statsEl.textContent = data.result ? data.result.message : "Unknown error";
+            actionTextEl.textContent = "Scraping ended with errors.";
+            doneLinkEl.href = "/";
+            doneLinkEl.textContent = "← Back to Home";
+            addLogLine("❌ Failed: " + (data.result ? data.result.message : "Unknown error"), "error");
+        }
+        doneEl.style.display = "block";
+        urlEl.textContent = "";
+        return;
+    }
+    
+    if (data.phase === "error") {
+        source.close();
+        spinnerEl.classList.add("done");
+        titleEl.textContent = "❌ Error Occurred";
+        barEl.classList.add("error");
+        statsEl.textContent = data.message;
+        actionTextEl.textContent = data.message;
+        doneEl.style.display = "block";
+        doneLinkEl.href = "/";
+        doneLinkEl.textContent = "← Back to Home";
+        addLogLine("❌ Error: " + data.message, "error");
+        return;
+    }
+    
+    // Update progress bar & percentage
+    if (data.total > 0) {
+        const pct = Math.min(100, Math.round((data.current / data.total) * 100));
+        barEl.style.width = pct + "%";
+        pctBadgeEl.textContent = pct + "%";
+        countEl.textContent = `${data.current} / ${data.total} Pages`;
+    }
+    
+    // Update live text & current URL
+    if (data.message) {
+        actionTextEl.textContent = data.message;
+        statsEl.textContent = data.message;
+    }
+    
+    if (data.url) {
+        urlEl.textContent = "🔗 " + data.url;
+    }
+    
+    // Detailed log additions
+    if (data.phase === "page_done") {
+        addLogLine("✅ " + data.message, "success");
+    } else if (data.phase === "page_error") {
+        addLogLine("⚠️ " + data.message, "error");
+    } else if (data.phase === "synthesis") {
+        addLogLine("🧠 " + data.message, "info");
+    } else if (data.phase === "scrape_sub") {
+        addLogLine("↳ " + data.message, "info");
+    } else if (data.phase === "init" || data.phase === "categories_done") {
+        addLogLine("ℹ️ " + data.message, "info");
+    }
+};
+
+source.onerror = function() {
+    source.close();
+    spinnerEl.classList.add("done");
+    titleEl.textContent = "Connection closed or finished";
+    doneEl.style.display = "block";
+    doneLinkEl.href = "/";
+    doneLinkEl.textContent = "← Back to Home";
+};
+</script>
+{% endblock %}

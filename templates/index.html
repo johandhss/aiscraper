@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- API Key Alert / Settings -->
+{% if not has_openai_key %}
+<div class="card" style="border-left: 4px solid var(--warning); background: rgba(234, 179, 8, 0.07);">
+    <div class="flex-between">
+        <div>
+            <strong style="color: var(--warning);">⚡ OpenAI API Key Not Configured</strong>
+            <p class="text-muted" style="margin: 0.25rem 0 0;">
+                The scraper will use heuristic section & category detection. Add your OpenAI API key for intelligent LLM layout classification & business synthesis.
+            </p>
+        </div>
+        <button type="button" onclick="document.getElementById('key-modal').style.display='block'" class="btn-sm" style="background: var(--warning); color: #000;">
+            Set API Key
+        </button>
+    </div>
+</div>
+{% endif %}
+
+<!-- Key Modal -->
+<div id="key-modal" class="modal" style="display: none;">
+    <div class="modal-content card">
+        <div class="flex-between" style="margin-bottom: 1rem;">
+            <h3 style="margin: 0;">Configure OpenAI API Key</h3>
+            <button type="button" onclick="document.getElementById('key-modal').style.display='none'" class="btn-sm" style="background: transparent; border: 1px solid var(--border);">&times;</button>
+        </div>
+        <form action="/settings/api-key" method="POST">
+            <div class="form-group" style="margin-bottom: 1rem;">
+                <label for="openai_api_key">OpenAI API Key (sk-...)</label>
+                <input type="password" name="openai_api_key" id="openai_api_key" placeholder="sk-proj-..." required>
+            </div>
+            <div class="flex-between">
+                <button type="button" onclick="document.getElementById('key-modal').style.display='none'" style="background: transparent; border: 1px solid var(--border);">Cancel</button>
+                <button type="submit">Save API Key</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Discovering Loading Overlay -->
+<div id="discover-overlay" class="modal" style="display: none;">
+    <div class="modal-content card" style="text-align: center; padding: 2.5rem 1.5rem; max-width: 520px;">
+        <div class="spinner" style="width: 44px; height: 44px; border-width: 4px; margin: 0 auto 1.25rem auto;"></div>
+        <h3 id="discover-title" style="margin: 0 0 0.5rem 0; font-size: 1.25rem;">🔍 Discovering & Analyzing Website...</h3>
+        <p id="discover-sub" class="text-muted" style="margin: 0 0 1.25rem 0; font-size: 0.88rem;">Connecting to target website and finding all internal links...</p>
+        
+        <div class="progress-bar-wrapper" style="height: 10px; margin-bottom: 1rem;">
+            <div class="progress-bar infinite-bar" id="discover-bar" style="width: 100%;"></div>
+        </div>
+
+        <div id="discover-steps" style="font-size: 0.8rem; color: #a5b4fc; min-height: 1.5em; font-family: monospace;">
+            ▶ Initializing crawler engine...
+        </div>
+    </div>
+</div>
+
+<!-- Step 1: Start Crawl Form -->
+<div class="card">
+    <h2 style="margin-top: 0;">Scrape a Website into Structured Knowledge</h2>
+    <p class="text-muted" style="margin-top: -0.5rem; margin-bottom: 1.25rem;">
+        Geef op voorhand je URL, de hoofdpijlers van het bedrijf (bijv. <em>Studio's</em> én <em>Events</em>) en eventuele context mee. De AI deelt vervolgens alle pagina's en content automatisch in onder de juiste pijler.
+    </p>
+
+    <form action="/crawl" method="POST" class="scrape-form" onsubmit="showDiscoverProgress(this)">
+        <!-- Row 1: URL & Model & Max pages -->
+        <div class="form-row" style="margin-bottom: 1rem;">
+            <div class="form-group" style="flex: 2;">
+                <label for="url">Website URL *</label>
+                <input type="text" name="url" id="url" placeholder="https://dutchwebcenter.com" required>
+            </div>
+            <div class="form-group" style="flex: 1.5;">
+                <label for="openai_model">AI Classifier Model</label>
+                <select name="openai_model" id="openai_model" class="custom-select">
+                    {% for m in models %}
+                    <option value="{{ m.id }}" {% if m.id == 'gpt-5.4-nano' or (m.id == 'gpt-4o-mini' and loop.first) %}selected{% endif %}>
+                        {{ m.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group" style="width: 110px;">
+                <label for="max_pages">Max Pages</label>
+                <input type="number" name="max_pages" id="max_pages" value="30" min="1" max="100">
+            </div>
+        </div>
+
+        <!-- Row 2: Predefined Categories & Business Context -->
+        <div class="form-row" style="margin-bottom: 1.25rem;">
+            <div class="form-group" style="flex: 1.5;">
+                <label for="categories">Hoofdpijlers / Categorieën (komma-gescheiden)</label>
+                <input type="text" name="categories" id="categories"
+                       placeholder="bijv. Studio verhuur, Events & Feesten, Apparatuur, Over ons"
+                       value="Studio's, Events, Over ons, Algemeen">
+                <span class="text-muted" style="font-size: 0.75rem;">
+                    💡 Bijvoorbeeld: <em>Studio verhuur, Events & Feesten, Catering, Workshops</em>
+                </span>
+            </div>
+            <div class="form-group" style="flex: 2;">
+                <label for="business_context">Korte Bedrijfscontext (Optioneel)</label>
+                <input type="text" name="business_context" id="business_context"
+                       placeholder="bijv. Klant heeft zowel professionele fotostudio's als een unieke eventlocatie voor feesten">
+                <span class="text-muted" style="font-size: 0.75rem;">
+                    Helpt het AI-model om content direct te koppelen aan de juiste tak van het bedrijf.
+                </span>
+            </div>
+        </div>
+
+        <div style="text-align: right;">
+            <button type="submit" id="discover-btn" style="font-size: 0.95rem; padding: 0.75rem 1.8rem;">
+                🔍 Discover Pages & Assign Categories &rarr;
+            </button>
+        </div>
+    </form>
+</div>
+
+<h2>Scraped Websites</h2>
+<div class="grid">
+    {% for site in sites %}
+    <div class="card">
+        <div class="flex-between">
+            <h3 class="card-title">
+                <a href="/sites/{{ site.id }}">{{ site.domain }}</a>
+            </h3>
+            <form action="/sites/{{ site.id }}/delete" method="POST" style="margin:0;"
+                  onsubmit="return confirm('Delete this site and all its data?');">
+                <button type="submit" class="danger btn-sm">Delete</button>
+            </form>
+        </div>
+        
+        {% if site.business_context %}
+        <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+            🏢 {{ site.business_context[:100] }}{% if site.business_context|length > 100 %}...{% endif %}
+        </div>
+        {% endif %}
+
+        {% if site.predefined_categories %}
+        <div style="display: flex; gap: 0.3rem; flex-wrap: wrap; margin-bottom: 0.75rem;">
+            {% for cat in site.predefined_categories %}
+            <span class="category-pill">{{ cat }}</span>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="flex-between" style="margin-top: 0.5rem; border-top: 1px solid var(--border); padding-top: 0.6rem;">
+            <span class="badge badge-scraped" style="background: rgba(99, 102, 241, 0.15); color: #818cf8;">
+                AI: {{ site.openai_model or 'gpt-5.4-nano' }}
+            </span>
+            <a href="/sites/{{ site.id }}" class="back-link" style="font-size: 0.85rem;">View Architecture &rarr;</a>
+        </div>
+    </div>
+    {% else %}
+    <p class="text-muted">No sites scraped yet. Enter a website URL above to start.</p>
+    {% endfor %}
+</div>
+
+<script>
+function showDiscoverProgress(form) {
+    const url = document.getElementById('url').value.trim();
+    if (!url) return;
+    
+    document.getElementById('discover-overlay').style.display = 'flex';
+    document.getElementById('discover-btn').disabled = true;
+    document.getElementById('discover-btn').textContent = 'Analyzing...';
+    
+    const steps = [
+        "🌐 Connecting to target domain and checking Cloudflare...",
+        "🕷️ Crawling internal pages and sitemap...",
+        "📑 Extracting page titles, H1 tags, and meta descriptions...",
+        "🤖 Running AI category assignment across business pillars...",
+        "✨ Preparing interactive architecture table..."
+    ];
+    
+    let stepIndex = 0;
+    const stepEl = document.getElementById('discover-steps');
+    setInterval(() => {
+        if (stepIndex < steps.length) {
+            stepEl.textContent = "▶ " + steps[stepIndex];
+            stepIndex++;
+        }
+    }, 2200);
+}
+</script>
+{% endblock %}

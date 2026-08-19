@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% macro render_tree(blocks) %}
+    <div class="tree">
+    {% for block in blocks %}
+        <div class="tree-node">
+            <div class="tree-content {% if block.children %}has-children{% endif %}"
+                 onclick="this.parentElement.classList.toggle('collapsed')">
+                <div class="tree-header">
+                    <span class="tag-badge">{{ block.tag_name }}</span>
+                    <span class="type-badge">{{ block.block_type }}</span>
+                    {% if block.section_type %}
+                    <span class="section-badge section-{{ block.section_type }}">
+                        ⚡ {{ block.section_type }}
+                    </span>
+                    {% endif %}
+                    {% if block.children %}
+                    <span class="toggle-icon">▼</span>
+                    {% endif %}
+                </div>
+                
+                {% if block.content %}
+                <div class="node-text">{{ block.content[:500] }}{% if block.content|length > 500 %}...{% endif %}</div>
+                {% endif %}
+                
+                {% if block.section_path %}
+                <div class="node-meta">📍 {{ block.section_path }}</div>
+                {% endif %}
+                
+                {% if block.attributes %}
+                <div class="node-meta">
+                    {% for key, val in block.attributes.items() %}
+                    <span class="attr-tag">{{ key }}="{{ val[:60] }}"</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            
+            {% if block.children %}
+                <div class="tree-children">
+                    {{ render_tree(block.children) }}
+                </div>
+            {% endif %}
+        </div>
+    {% endfor %}
+    </div>
+{% endmacro %}
+
+<div style="margin-bottom: 1.5rem;">
+    <a href="/sites/{{ page.site_id }}" class="back-link">&larr; Back to Site</a>
+</div>
+
+<div class="card" style="margin-bottom: 1.5rem;">
+    <div class="flex-between">
+        <div>
+            <h2 style="margin-top: 0; margin-bottom: 0.25rem;">{{ page.title or page.path }}</h2>
+            <div class="text-muted" style="margin-bottom: 0.5rem;">
+                URL: <a href="{{ page.url }}" target="_blank" style="color: var(--primary);">{{ page.url }}</a>
+            </div>
+        </div>
+        <div style="display: flex; gap: 0.5rem; align-items: center;">
+            <button onclick="copyCurrentPagePrompt(this)" class="btn-sm" style="background: rgba(99, 102, 241, 0.15); border: 1px solid rgba(99, 102, 241, 0.3); color: #818cf8; font-weight: 600;">
+                📋 Copy Page LLM Prompt
+            </button>
+            {% if page.categories %}
+            <span class="category-pill" style="font-size: 0.85rem; padding: 0.35rem 0.75rem;">
+                📁 {{ page.categories.name }}
+            </span>
+            {% endif %}
+            <span class="type-badge" style="font-size: 0.85rem; padding: 0.35rem 0.75rem;">
+                {{ page.page_type or 'general_page' }}
+            </span>
+        </div>
+    </div>
+
+    {% if page.scrape_instructions %}
+    <div style="background: rgba(234, 179, 8, 0.08); border: 1px solid rgba(234, 179, 8, 0.25); border-radius: 6px; padding: 0.5rem 0.8rem; margin: 0.5rem 0; font-size: 0.85rem; color: #facc15;">
+        <strong>Custom Instructions:</strong> {{ page.scrape_instructions }}
+    </div>
+    {% endif %}
+
+    {% if page.meta_description %}
+    <p style="margin-bottom: 0; font-size: 0.9rem; color: var(--text-muted);">{{ page.meta_description }}</p>
+    {% endif %}
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('tree')">🌳 Content Tree ({{ root_blocks|length }})</button>
+    <button class="tab-btn" onclick="switchTab('images')">🖼️ Images ({{ images|length }})</button>
+    <button class="tab-btn" onclick="switchTab('screenshot')">📸 Visual Screenshot</button>
+    <button class="tab-btn" onclick="switchTab('links')">🔗 CTAs & Links ({{ links|length }})</button>
+    <button class="tab-btn" onclick="switchTab('markdown')">📄 Raw Markdown</button>
+</div>
+
+<!-- Tab 1: Tree -->
+<div id="tab-tree" class="tab-content active">
+    <div class="card">
+        {% if root_blocks %}
+            {{ render_tree(root_blocks) }}
+        {% else %}
+            <p class="text-muted">No content blocks found for this page.</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Tab 2: Images -->
+<div id="tab-images" class="tab-content">
+    <div class="card">
+        {% if images %}
+        <div class="grid" style="grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));">
+            {% for img in images %}
+            <div class="img-card">
+                <div class="img-preview-box">
+                    <img src="{{ img.public_url or img.original_url }}" alt="{{ img.alt_text }}" loading="lazy">
+                </div>
+                <div style="padding: 0.75rem;">
+                    <div class="flex-between" style="margin-bottom: 0.35rem;">
+                        <span class="badge" style="background: rgba(99, 102, 241, 0.2); color: #818cf8;">
+                            {{ img.image_type or 'content_image' }}
+                        </span>
+                        {% if img.width and img.height %}
+                        <span class="text-muted" style="font-size: 0.72rem;">{{ img.width }}x{{ img.height }}px</span>
+                        {% endif %}
+                    </div>
+                    {% if img.alt_text %}
+                    <div style="font-size: 0.8rem; font-weight: 500; margin-bottom: 0.25rem;">
+                        Alt: "{{ img.alt_text }}"
+                    </div>
+                    {% endif %}
+                    {% if img.section_context %}
+                    <div class="text-muted" style="font-size: 0.72rem;">📍 {{ img.section_context }}</div>
+                    {% endif %}
+                    <div style="margin-top: 0.5rem;">
+                        <a href="{{ img.public_url or img.original_url }}" target="_blank" style="font-size: 0.75rem; color: var(--primary);">View High-Res ↗</a>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-muted">No images recorded on this page.</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Tab: Screenshot -->
+<div id="tab-screenshot" class="tab-content">
+    <div class="card">
+        {% if page.screenshot_url %}
+        <div class="flex-between" style="margin-bottom: 1rem;">
+            <div>
+                <h4 style="margin: 0;">Full-Page Visual Layout</h4>
+                <span class="text-muted" style="font-size: 0.8rem;">Captured with headless Chrome rendering</span>
+            </div>
+            <a href="{{ page.screenshot_url }}" target="_blank" class="btn btn-sm">Open Full Screenshot ↗</a>
+        </div>
+        <div style="background: #000; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; text-align: center;">
+            <img src="{{ page.screenshot_url }}" alt="Full page screenshot of {{ page.title }}" style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+        </div>
+        {% else %}
+        <p class="text-muted">No screenshot available for this page yet. Re-scrape the page to generate a full-page capture.</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Tab 3: CTAs & Links -->
+<div id="tab-links" class="tab-content">
+    <div class="card">
+        {% if links %}
+        <div class="table-responsive">
+            <table class="config-table">
+                <thead>
+                    <tr>
+                        <th>Type</th>
+                        <th>Text / Button Label</th>
+                        <th>Target URL</th>
+                        <th>Section Context</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for link in links %}
+                    <tr>
+                        <td>
+                            {% if link.is_primary %}
+                            <span class="badge" style="background: rgba(34, 197, 94, 0.2); color: #4ade80;">🔥 Primary CTA</span>
+                            {% else %}
+                            <span class="badge" style="background: rgba(255, 255, 255, 0.05); color: var(--text-muted);">{{ link.link_type }}</span>
+                            {% endif %}
+                        </td>
+                        <td><strong>{{ link.text }}</strong></td>
+                        <td>
+                            <a href="{{ link.url }}" target="_blank" style="color: var(--primary); font-size: 0.82rem; word-break: break-all;">
+                                {{ link.url }}
+                            </a>
+                        </td>
+                        <td class="text-muted" style="font-size: 0.78rem;">{{ link.section_context }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-muted">No CTAs or links recorded on this page.</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Tab 4: Markdown -->
+<div id="tab-markdown" class="tab-content">
+    {% if page.raw_markdown %}
+    <div class="card">
+        <pre class="markdown-pre">{{ page.raw_markdown }}</pre>
+    </div>
+    {% else %}
+    <div class="card">
+        <p class="text-muted">No markdown content available.</p>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+function switchTab(tab) {
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+    document.getElementById('tab-' + tab).classList.add('active');
+    event.target.classList.add('active');
+}
+
+function copyCurrentPagePrompt(btn) {
+    fetch('/pages/{{ page.id }}/blueprint-prompt')
+        .then(r => r.text())
+        .then(text => {
+            navigator.clipboard.writeText(text).then(() => {
+                const orig = btn.textContent;
+                btn.textContent = '✅ Copied to Clipboard!';
+                setTimeout(() => { btn.textContent = orig; }, 2500);
+            });
+        });
+}
+</script>
+{% endblock %}

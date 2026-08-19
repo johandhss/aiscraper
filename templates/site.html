@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="flex-between" style="margin-bottom: 1.5rem;">
+    <div>
+        <a href="/" class="back-link">&larr; All Sites</a>
+        <h2 style="margin-top: 0.5rem; margin-bottom: 0.2rem;">{{ site.domain }}</h2>
+        <div class="text-muted">
+            {{ pages|length }} page{{ 's' if pages|length != 1 }} &bull; {{ categories|length }} Categories &bull; Model: <strong>{{ site.openai_model or 'gpt-5.4-nano' }}</strong>
+        </div>
+        {% if site.business_context %}
+        <div style="font-size: 0.85rem; color: #a5b4fc; margin-top: 0.25rem;">
+            🏢 {{ site.business_context }}
+        </div>
+        {% endif %}
+    </div>
+    <div style="display: flex; gap: 0.6rem; align-items: center;">
+        <a href="/sites/{{ site.id }}/blueprint" class="btn" style="padding: 0.65rem 1.35rem; font-size: 0.95rem; background: linear-gradient(135deg, #6366f1, #a855f7); border: none; text-decoration: none;">
+            ⚡ Generate LLM Blueprint
+        </a>
+        <form action="/crawl" method="POST" style="margin:0;">
+            <input type="hidden" name="url" value="https://{{ site.domain }}">
+            <input type="hidden" name="openai_model" value="{{ site.openai_model or 'gpt-5.4-nano' }}">
+            <input type="hidden" name="business_context" value="{{ site.business_context or '' }}">
+            <button type="submit" class="btn-sm" style="background: var(--bg-card); border: 1px solid var(--border);">🔄 Re-Crawl</button>
+        </form>
+    </div>
+</div>
+
+<!-- Business Pillars / Categories Overview -->
+{% if categories %}
+<div style="margin-bottom: 2rem;">
+    <h3 style="margin-bottom: 0.75rem;">📂 Business Pillars & Content Categories</h3>
+    <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));">
+        {% for cat in categories %}
+        <div class="card" style="border-top: 3px solid var(--primary);">
+            <div class="flex-between" style="margin-bottom: 0.5rem;">
+                <h4 style="margin: 0; font-size: 1.1rem; color: #fff;">{{ cat.name }}</h4>
+                <span class="badge badge-scraped" style="font-size: 0.7rem;">{{ cat.slug }}</span>
+            </div>
+
+            {% if cat.summary %}
+            <p style="font-size: 0.85rem; line-height: 1.5; color: var(--text); margin-bottom: 0.75rem;">
+                {{ cat.summary }}
+            </p>
+            {% endif %}
+
+            {% if cat.target_audience %}
+            <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+                🎯 <strong>Doelgroep:</strong> {{ cat.target_audience }}
+            </div>
+            {% endif %}
+
+            {% if cat.usps %}
+            <div style="margin-top: 0.5rem;">
+                <strong style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase;">Belangrijkste USPs:</strong>
+                <div style="display: flex; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.3rem;">
+                    {% for usp in cat.usps %}
+                    <span class="attr-tag" style="background: rgba(99, 102, 241, 0.1); color: #c7d2fe; border-color: rgba(99, 102, 241, 0.3);">
+                        ✓ {{ usp }}
+                    </span>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Site Navigation Structure -->
+{% if nav_menus %}
+<div class="card" style="margin-bottom: 2rem;">
+    <h3 style="margin-top: 0; margin-bottom: 0.75rem;">🧭 Navigation Architecture</h3>
+    <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+        {% for menu in nav_menus %}
+        <div style="background: var(--bg); padding: 1rem; border-radius: 6px; border: 1px solid var(--border);">
+            <div style="font-weight: 600; text-transform: uppercase; font-size: 0.75rem; color: var(--primary); margin-bottom: 0.5rem;">
+                {{ menu.menu_type }}
+            </div>
+            <ul style="margin: 0; padding-left: 1.2rem; font-size: 0.88rem;">
+                {% for item in menu.items %}
+                <li style="margin-bottom: 0.25rem;">
+                    <strong>{{ item.label }}</strong>
+                    <span class="text-muted" style="font-size: 0.75rem;">({{ item.url }})</span>
+                    {% if item.children %}
+                    <ul style="padding-left: 1rem; margin-top: 0.2rem;">
+                        {% for sub in item.children %}
+                        <li>{{ sub.label }} <span class="text-muted" style="font-size: 0.75rem;">({{ sub.url }})</span></li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<h3>Scraped Pages</h3>
+<div class="grid">
+    {% for page in pages %}
+    <div class="card">
+        <div class="flex-between" style="margin-bottom: 0.4rem;">
+            <h3 class="card-title" style="margin: 0;">
+                <a href="/pages/{{ page.id }}">{{ page.title or page.path }}</a>
+            </h3>
+            <span class="badge badge-{{ page.status }}">{{ page.status }}</span>
+        </div>
+
+        <div style="margin-bottom: 0.6rem; display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap;">
+            {% if page.categories %}
+            <span class="category-pill" style="font-size: 0.75rem;">
+                📁 {{ page.categories.name }}
+            </span>
+            {% endif %}
+            <span class="type-badge" style="font-size: 0.72rem;">
+                {{ page.page_type or 'general_page' }}
+            </span>
+            <span class="text-muted" style="font-size: 0.78rem;">{{ page.path }}</span>
+        </div>
+
+        {% if page.scrape_instructions %}
+        <div style="font-size: 0.78rem; color: var(--warning); margin-bottom: 0.5rem;">
+            💡 {{ page.scrape_instructions }}
+        </div>
+        {% endif %}
+
+        {% if page.meta_description %}
+        <div style="font-size: 0.82rem; margin-bottom: 0.75rem; color: var(--text-muted);">
+            {{ page.meta_description[:110] }}{% if page.meta_description|length > 110 %}...{% endif %}
+        </div>
+        {% endif %}
+
+        <div class="flex-between" style="margin-top: 0.75rem; border-top: 1px solid var(--border); padding-top: 0.5rem;">
+            <a href="/pages/{{ page.id }}" style="color: var(--primary); font-size: 0.85rem; font-weight: 500; text-decoration: none;">
+                Inspect Blocks & Images &rarr;
+            </a>
+            <a href="{{ page.url }}" target="_blank" class="back-link" style="font-size: 0.78rem;">Original ↗</a>
+        </div>
+    </div>
+    {% else %}
+    <p class="text-muted">No pages found for this site.</p>
+    {% endfor %}
+</div>
+{% endblock %}

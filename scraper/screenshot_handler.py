@@ -1,0 +1,256 @@
+import time
+import re
+from urllib.parse import urljoin
+from playwright.sync_api import sync_playwright
+from scraper.db import upload_image_to_storage
+
+
+def capture_page_screenshot_and_media(page_url, page_id, site_domain):
+    """
+    Use Playwright to:
+    1. Render the live page with full JavaScript execution.
+    2. Deep-scroll the entire page to trigger ALL lazy-loaded images, animations & infinite scroll.
+    3. Wait for images to fully load after scrolling.
+    4. Capture a high-res full-page screenshot and upload to Supabase Storage.
+    5. Extract all resolved, rendered <img> and background-image URLs from the live DOM.
+    """
+    screenshot_url = None
+    rendered_images = []
+    browser = None
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--no-first-run",
+                    "--no-zygote",
+                    "--disable-extensions",
+                    "--disable-background-networking",
+                    "--disable-default-apps",
+                    "--disable-sync"
+                ]
+            )
+            context = browser.new_context(
+                viewport={"width": 1440, "height": 900},
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            )
+            page = context.new_page()
+
+            # Navigate with 20s timeout — domcontentloaded + networkidle fallback
+            try:
+                page.goto(page_url, wait_until="domcontentloaded", timeout=20000)
+                # Give extra time for JS frameworks to hydrate
+                time.sleep(1.5)
+            except Exception as e:
+                print(f"[Screenshot] Navigation timeout/issue on {page_url}: {e}", flush=True)
+
+            # Deep smooth scroll — scroll the ENTIRE page step by step to trigger ALL lazy-loaded content
+            try:
+                page.evaluate("""async () => {
+                    await new Promise((resolve) => {
+                        let totalHeight = 0;
+                        const distance = 400;
+                        const maxScrolls = 60;
+                        let count = 0;
+                        const timer = setInterval(() => {
+                            const scrollHeight = document.body.scrollHeight;
+                            window.scrollBy(0, distance);
+                            totalHeight += distance;
+                            count++;
+                            if(totalHeight >= scrollHeight || count >= maxScrolls){
+                                clearInterval(timer);
+                                resolve();
+                            }
+                        }, 120);
+                    });
+                }""")
+                # Wait for lazy-loaded images to actually load after scroll
+                time.sleep(2.0)
+                # Scroll back to top for the screenshot
+                page.evaluate("window.scrollTo(0, 0)")
+                time.sleep(0.5)
+            except Exception:
+                pass
+
+            # Wait for all images to finish loading
+            try:
+                page.evaluate("""() => {
+                    return Promise.all(
+                        Array.from(document.images)
+                            .filter(img => !img.complete)
+                            .map(img => new Promise((resolve) => {
+                                img.addEventListener('load', resolve, {once: true});
+                                img.addEventListener('error', resolve, {once: true});
+                                setTimeout(resolve, 3000);
+                            }))
+                    );
+                }""")
+            except Exception:
+                pass
+
+            # 1. Capture Full Page Screenshot
+            try:
+                screenshot_bytes = page.screenshot(full_page=True, type="jpeg", quality=80, timeout=15000)
+                if screenshot_bytes and len(screenshot_bytes) > 0:
+                    storage_path = f"{site_domain}/{page_id}/screenshot.jpg"
+                    print(f"[Screenshot] Uploading screenshot ({len(screenshot_bytes)} bytes) to {storage_path}", flush=True)
+                    screenshot_url = upload_image_to_storage(
+                        file_bytes=screenshot_bytes,
+                        storage_path=storage_path,
+                        content_type="image/jpeg"
+                    )
+                    if screenshot_url:
+                        print(f"[Screenshot] ✅ Uploaded: {screenshot_url[:80]}...", flush=True)
+                    else:
+                        print(f"[Screenshot] ❌ Upload returned None for {page_url}", flush=True)
+            except Exception as e:
+                print(f"[Screenshot] Error capturing full-page screenshot ({page_url}): {e}", flush=True)
+
+            # 2. Extract All Rendered Images from Live DOM
+            try:
+                raw_dom_imgs = page.evaluate("""() => {
+                    const results = [];
+                    const seen = new Set();
+
+                    // All <img> elements — check multiple source attributes
+                    document.querySelectorAll('img').forEach(img => {
+                        // Prefer currentSrc (actual rendered source, includes srcset resolution)
+                        const candidates = [
+                            img.currentSrc,
+                            img.src,
+                            img.getAttribute('data-lazy-src'),
+                            img.getAttribute('data-lazy-srcset'),
+                            img.getAttribute('data-src'),
+                            img.getAttribute('data-original'),
+                            img.getAttribute('data-bg'),
+                            img.getAttribute('data-bg-src')
+                        ];
+                        
+                        for (const src of candidates) {
+                            if (src && !src.startsWith('data:') && !src.includes('data:image') && !seen.has(src)) {
+                                // For srcset values, take the first/largest URL
+                                const cleanSrc = src.split(',')[0].trim().split(' ')[0];
+                                if (cleanSrc && !seen.has(cleanSrc)) {
+                                    seen.add(cleanSrc);
+                                    results.push({
+                                        src: cleanSrc,
+                                        alt: img.alt || '',
+                                        width: img.naturalWidth || img.width || 0,
+                                        height: img.naturalHeight || img.height || 0
+                                    });
+                                }
+                                break;
+                            }
+                        }
+                    });
+
+                    // <source> inside <picture> elements
+                    document.querySelectorAll('picture source').forEach(source => {
+                        const srcset = source.getAttribute('srcset');
+                        if (srcset) {
+                            const src = srcset.split(',')[0].trim().split(' ')[0];
+                            if (src && !src.startsWith('data:') && !seen.has(src)) {
+                                seen.add(src);
+                                results.push({
+                                    src: src,
+                                    alt: 'Picture source',
+                                    width: 0,
+                                    height: 0
+                                });
+                            }
+                        }
+                    });
+
+                    // <video> poster images
+                    document.querySelectorAll('video[poster]').forEach(video => {
+                        const poster = video.getAttribute('poster');
+                        if (poster && !poster.startsWith('data:') && !seen.has(poster)) {
+                            seen.add(poster);
+                            results.push({
+                                src: poster,
+                                alt: 'Video poster',
+                                width: video.clientWidth || 0,
+                                height: video.clientHeight || 0
+                            });
+                        }
+                    });
+
+                    // Background images (CSS) — only scan elements likely to have backgrounds
+                    const bgSelectors = 'section, div, header, footer, main, article, aside, span, a, [style*="background"]';
+                    document.querySelectorAll(bgSelectors).forEach(el => {
+                        const bg = window.getComputedStyle(el).backgroundImage;
+                        if (bg && bg !== 'none') {
+                            // Can contain multiple backgrounds: url(...), url(...)
+                            const matches = bg.matchAll(/url\\(['"]?(.*?)['"]?\\)/g);
+                            for (const match of matches) {
+                                const src = match[1];
+                                if (src && !src.startsWith('data:') && !src.includes('data:image') && !seen.has(src)) {
+                                    seen.add(src);
+                                    results.push({
+                                        src: src,
+                                        alt: 'Background Image',
+                                        width: el.clientWidth || 0,
+                                        height: el.clientHeight || 0
+                                    });
+                                }
+                            }
+                        }
+                    });
+
+                    // SVG <image> elements
+                    document.querySelectorAll('svg image').forEach(img => {
+                        const href = img.getAttribute('href') || img.getAttribute('xlink:href');
+                        if (href && !href.startsWith('data:') && !seen.has(href)) {
+                            seen.add(href);
+                            results.push({
+                                src: href,
+                                alt: 'SVG image',
+                                width: parseInt(img.getAttribute('width')) || 0,
+                                height: parseInt(img.getAttribute('height')) || 0
+                            });
+                        }
+                    });
+
+                    return results;
+                }""")
+
+                for item in raw_dom_imgs:
+                    src = item.get("src", "")
+                    if src and not src.startswith("data:"):
+                        full_src = urljoin(page_url, src)
+                        rendered_images.append({
+                            "src": full_src,
+                            "alt": item.get("alt", ""),
+                            "width": item.get("width", 0),
+                            "height": item.get("height", 0)
+                        })
+
+                print(f"[Screenshot] Found {len(rendered_images)} rendered images on {page_url}", flush=True)
+
+            except Exception as e:
+                print(f"[Screenshot] Error extracting DOM images ({page_url}): {e}", flush=True)
+
+            try:
+                browser.close()
+                browser = None
+            except Exception:
+                pass
+
+    except Exception as e:
+        print(f"[Screenshot] Playwright error on {page_url}: {e}", flush=True)
+    finally:
+        if browser:
+            try:
+                browser.close()
+            except Exception:
+                pass
+
+    return {
+        "screenshot_url": screenshot_url,
+        "rendered_images": rendered_images
+    }

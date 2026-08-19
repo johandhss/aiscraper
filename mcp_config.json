@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "website-scraper": {
+      "command": "python3",
+      "args": ["/Users/johanvanderwijk/Documents/Scraper/mcp_server.py"],
+      "env": {
+        "MCP_API_KEY": "qkDBPdE9Rrz4R0AvkskcA7xEuuWG-9lQkcFsmKxAXd8"
+      }
+    },
+    "website-scraper-http": {
+      "url": "http://localhost:8808",
+      "headers": {
+        "Authorization": "Bearer qkDBPdE9Rrz4R0AvkskcA7xEuuWG-9lQkcFsmKxAXd8"
+      }
+    }
+  }
+}

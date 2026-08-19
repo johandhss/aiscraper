@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="flex-between" style="margin-bottom: 1.5rem;">
+    <div>
+        <a href="/sites/{{ site.id }}" class="back-link">&larr; Back to {{ site.domain }}</a>
+        <h2 style="margin-top: 0.5rem; margin-bottom: 0.2rem;">⚡ LLM Rebuild Blueprint: {{ site.domain }}</h2>
+        <div class="text-muted" style="font-size: 0.88rem;">
+            Master prompt and structured knowledge spec for Cursor, Claude 3.5 Sonnet, GPT-4o, v0 & Bolt.new
+        </div>
+    </div>
+
+    <div style="display: flex; gap: 0.6rem; align-items: center;">
+        <a href="/sites/{{ site.id }}/blueprint/download-json" class="btn-sm" style="background: var(--bg-card); border: 1px solid var(--border); text-decoration: none; padding: 0.6rem 1rem;">
+            💾 Download .JSON Spec
+        </a>
+        <button onclick="copyMasterPrompt()" class="btn" style="padding: 0.6rem 1.25rem;">
+            📋 Copy Master Prompt
+        </button>
+    </div>
+</div>
+
+<!-- Quick Stats Bar -->
+<div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 1.5rem;">
+    <div class="card" style="padding: 1rem; text-align: center;">
+        <div style="font-size: 1.5rem; font-weight: 700; color: #818cf8;">{{ blueprint.meta.total_pages }}</div>
+        <div class="text-muted" style="font-size: 0.78rem; text-transform: uppercase;">Total Routes</div>
+    </div>
+    <div class="card" style="padding: 1rem; text-align: center;">
+        <div style="font-size: 1.5rem; font-weight: 700; color: #c084fc;">{{ blueprint.meta.total_categories }}</div>
+        <div class="text-muted" style="font-size: 0.78rem; text-transform: uppercase;">Business Pillars</div>
+    </div>
+    <div class="card" style="padding: 1rem; text-align: center;">
+        <div style="font-size: 1.5rem; font-weight: 700; color: #4ade80;">{{ blueprint.meta.total_images }}</div>
+        <div class="text-muted" style="font-size: 0.78rem; text-transform: uppercase;">CDN Images</div>
+    </div>
+    <div class="card" style="padding: 1rem; text-align: center;">
+        <div style="font-size: 1.5rem; font-weight: 700; color: #fbbf24;">100%</div>
+        <div class="text-muted" style="font-size: 0.78rem; text-transform: uppercase;">LLM Ready</div>
+    </div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('prompt')">🤖 Master LLM Prompt</button>
+    <button class="tab-btn" onclick="switchTab('json')">📦 Structured JSON Spec</button>
+    <button class="tab-btn" onclick="switchTab('pages')">📑 Modular Page Cards ({{ blueprint.pages|length }})</button>
+    <button class="tab-btn" onclick="switchTab('assets')">🖼️ Asset Catalog ({{ blueprint.media_catalog|length }})</button>
+</div>
+
+<!-- Tab 1: Master Prompt -->
+<div id="tab-prompt" class="tab-content active">
+    <div class="card">
+        <div class="flex-between" style="margin-bottom: 1rem;">
+            <div>
+                <h3 style="margin: 0;">Cursor / Claude / GPT Master System Prompt</h3>
+                <span class="text-muted" style="font-size: 0.8rem;">Paste this directly into Cursor Composer or Claude to rebuild the website</span>
+            </div>
+            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <label for="framework-select" style="font-size: 0.8rem; margin: 0; color: var(--text-muted);">Framework:</label>
+                <select id="framework-select" class="custom-select-sm" onchange="updateFramework(this.value)">
+                    <option value="Next.js 14 (App Router) + Tailwind CSS">Next.js 14 + Tailwind</option>
+                    <option value="Astro + Tailwind CSS">Astro + Tailwind</option>
+                    <option value="React (Vite) + Tailwind CSS">React + Tailwind</option>
+                    <option value="Vue 3 (Nuxt) + Tailwind CSS">Nuxt + Tailwind</option>
+                    <option value="HTML5 + Modern Tailwind CSS">HTML5 + Tailwind</option>
+                </select>
+                <button onclick="copyMasterPrompt()" id="copy-prompt-btn" class="btn-sm" style="font-weight: 600;">
+                    📋 Copy Prompt
+                </button>
+            </div>
+        </div>
+
+        <pre id="prompt-content" class="markdown-pre" style="max-height: 580px; padding: 1.25rem; background: rgba(0,0,0,0.5); border: 1px solid var(--border); border-radius: 8px;">{{ master_prompt }}</pre>
+    </div>
+</div>
+
+<!-- Tab 2: JSON Spec -->
+<div id="tab-json" class="tab-content">
+    <div class="card">
+        <div class="flex-between" style="margin-bottom: 1rem;">
+            <div>
+                <h3 style="margin: 0;">Complete High-Density JSON Specification</h3>
+                <span class="text-muted" style="font-size: 0.8rem;">Full machine-readable knowledge graph for agents & APIs</span>
+            </div>
+            <button onclick="copyJsonSpec()" class="btn-sm" style="background: var(--bg-card); border: 1px solid var(--border);">
+                📋 Copy JSON
+            </button>
+        </div>
+        <pre id="json-content" class="markdown-pre" style="max-height: 580px; padding: 1.25rem; background: rgba(0,0,0,0.5); border: 1px solid var(--border); border-radius: 8px;">{{ blueprint_json }}</pre>
+    </div>
+</div>
+
+<!-- Tab 3: Modular Page Cards -->
+<div id="tab-pages" class="tab-content">
+    <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));">
+        {% for page in blueprint.pages %}
+        <div class="card" style="display: flex; flex-direction: column; justify-content: space-between;">
+            <div>
+                <div class="flex-between" style="margin-bottom: 0.5rem;">
+                    <span class="category-pill" style="font-size: 0.72rem;">📁 {{ page.category }}</span>
+                    <span class="type-badge" style="font-size: 0.72rem;">{{ page.page_type }}</span>
+                </div>
+                
+                <h4 style="margin: 0 0 0.25rem 0;">{{ page.title }}</h4>
+                <div class="text-muted" style="font-size: 0.75rem; font-family: monospace; margin-bottom: 0.6rem;">{{ page.path }}</div>
+                
+                {% if page.screenshot_url %}
+                <div style="height: 110px; background: #000; border-radius: 6px; overflow: hidden; margin-bottom: 0.75rem; border: 1px solid var(--border);">
+                    <img src="{{ page.screenshot_url }}" alt="Preview" style="width: 100%; height: 100%; object-fit: cover; object-position: top;">
+                </div>
+                {% endif %}
+
+                <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+                    <strong>{{ page.sections_count }}</strong> sections &bull; <strong>{{ page.images_count }}</strong> images &bull; <strong>{{ page.ctas|length }}</strong> CTAs
+                </div>
+            </div>
+
+            <div style="margin-top: 0.75rem; border-top: 1px solid var(--border); padding-top: 0.6rem; display: flex; gap: 0.4rem; justify-content: space-between;">
+                <a href="/pages/{{ page.id }}" class="back-link" style="font-size: 0.78rem;">Inspect Details &rarr;</a>
+                <button onclick="copySinglePagePrompt('{{ page.id }}', this)" class="btn-sm" style="font-size: 0.75rem; padding: 0.35rem 0.65rem;">
+                    📋 Copy Page Prompt
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Tab 4: Asset Catalog -->
+<div id="tab-assets" class="tab-content">
+    <div class="card">
+        <h3 style="margin-top: 0; margin-bottom: 1rem;">Hosted Media & CDN Catalog</h3>
+        <div class="table-responsive">
+            <table class="config-table">
+                <thead>
+                    <tr>
+                        <th style="width: 90px;">Thumbnail</th>
+                        <th>Type & Context</th>
+                        <th>Alt Text & Route</th>
+                        <th>Dimensions</th>
+                        <th>CDN Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for img in blueprint.media_catalog %}
+                    <tr>
+                        <td>
+                            <div style="width: 70px; height: 50px; background: #000; border-radius: 4px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+                                <img src="{{ img.url }}" alt="{{ img.alt }}" style="max-width: 100%; max-height: 100%; object-fit: contain;">
+                            </div>
+                        </td>
+                        <td>
+                            <span class="badge" style="background: rgba(99, 102, 241, 0.15); color: #818cf8;">{{ img.type }}</span>
+                            <div class="text-muted" style="font-size: 0.72rem; margin-top: 0.2rem;">{{ img.section_context or 'Content' }}</div>
+                        </td>
+                        <td>
+                            <strong>{{ img.alt or 'No Alt Text' }}</strong>
+                            <div class="text-muted" style="font-size: 0.72rem;">Route: {{ img.page_path }}</div>
+                        </td>
+                        <td class="text-muted" style="font-size: 0.78rem;">
+                            {% if img.width %}{{ img.width }}x{{ img.height }}px{% else %}Auto{% endif %}
+                        </td>
+                        <td>
+                            <button onclick="navigator.clipboard.writeText('{{ img.url }}'); alert('Image CDN URL copied!');" class="btn-sm" style="background: var(--bg); border: 1px solid var(--border); font-size: 0.75rem;">
+                                Copy URL
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+function switchTab(tab) {
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+    document.getElementById('tab-' + tab).classList.add('active');
+    event.target.classList.add('active');
+}
+
+function copyMasterPrompt() {
+    const text = document.getElementById('prompt-content').innerText;
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById('copy-prompt-btn');
+        btn.textContent = '✅ Copied to Clipboard!';
+        setTimeout(() => { btn.textContent = '📋 Copy Prompt'; }, 2500);
+    });
+}
+
+function copyJsonSpec() {
+    const text = document.getElementById('json-content').innerText;
+    navigator.clipboard.writeText(text).then(() => {
+        alert('JSON specification copied to clipboard!');
+    });
+}
+
+function copySinglePagePrompt(pageId, btn) {
+    fetch(`/pages/${pageId}/blueprint-prompt`)
+        .then(r => r.text())
+        .then(promptText => {
+            navigator.clipboard.writeText(promptText).then(() => {
+                const orig = btn.textContent;
+                btn.textContent = '✅ Copied!';
+                setTimeout(() => { btn.textContent = orig; }, 2000);
+            });
+        });
+}
+
+function updateFramework(fw) {
+    fetch(`/sites/{{ site.id }}/blueprint/prompt-text?framework=${encodeURIComponent(fw)}`)
+        .then(r => r.text())
+        .then(newPrompt => {
+            document.getElementById('prompt-content').innerText = newPrompt;
+        });
+}
+</script>
+{% endblock %}

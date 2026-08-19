@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div style="margin-bottom: 1.5rem;">
+    <a href="/" class="back-link">&larr; Back to Home</a>
+</div>
+
+<div class="card">
+    <div class="flex-between">
+        <div>
+            <h2 style="margin: 0;">Configure Scraping & Architecture for {{ domain }}</h2>
+            <p class="text-muted" style="margin: 0.35rem 0 0;">
+                Discovered <strong>{{ pages|length }}</strong> pages. The AI has pre-assigned each page to one of your business categories. Review or adjust them below.
+            </p>
+        </div>
+        <span class="badge badge-scraped" style="font-size: 0.85rem; padding: 0.4rem 0.8rem;">
+            {{ pages|length }} Pages Found
+        </span>
+    </div>
+
+    {% if business_context %}
+    <div style="margin-top: 1rem; padding: 0.6rem 0.9rem; background: rgba(99, 102, 241, 0.08); border-left: 3px solid var(--primary); border-radius: 4px; font-size: 0.85rem;">
+        <strong>Bedrijfscontext:</strong> {{ business_context }}
+    </div>
+    {% endif %}
+</div>
+
+<form action="/scrape/execute" method="POST" id="config-form">
+    <input type="hidden" name="start_url" value="{{ start_url }}">
+    <input type="hidden" name="domain" value="{{ domain }}">
+    <input type="hidden" name="business_context" value="{{ business_context }}">
+    <input type="hidden" name="all_categories" id="all_categories" value='{{ categories|tojson }}'>
+
+    <!-- AI & Global Settings -->
+    <div class="card">
+        <h3 style="margin-top: 0;">1. AI Settings & Global Instructions</h3>
+        <div class="form-row" style="margin-bottom: 0.5rem;">
+            <div class="form-group" style="flex: 1.2;">
+                <label for="openai_model">OpenAI Classifier Model</label>
+                <select name="openai_model" id="openai_model" class="custom-select">
+                    {% for m in models %}
+                    <option value="{{ m.id }}" {% if m.id == selected_model %}selected{% endif %}>
+                        {{ m.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group" style="flex: 2;">
+                <label for="global_instructions">Global Scraping Instructions (Optional)</label>
+                <input type="text" name="global_instructions" id="global_instructions"
+                       placeholder="e.g. Extract exact pricing details, studio specifications, and booking CTAs">
+            </div>
+        </div>
+    </div>
+
+    <!-- Per-Page Configuration -->
+    <div class="card">
+        <div class="flex-between" style="margin-bottom: 1rem;">
+            <div>
+                <h3 style="margin: 0;">2. Category Pillars & Page Types</h3>
+                <span class="text-muted" style="font-size: 0.8rem;">Active Categories: 
+                    {% for c in categories %}
+                    <span class="category-pill">{{ c }}</span>
+                    {% endfor %}
+                </span>
+            </div>
+            <div>
+                <button type="button" class="btn-sm" style="background: var(--bg); border: 1px solid var(--border);" onclick="toggleSelectAll(true)">Select All</button>
+                <button type="button" class="btn-sm" style="background: var(--bg); border: 1px solid var(--border);" onclick="toggleSelectAll(false)">Deselect All</button>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="config-table">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;">Include</th>
+                        <th>Path & URL</th>
+                        <th style="width: 170px;">Hoofdcategorie / Pijler</th>
+                        <th style="width: 160px;">Paginatype</th>
+                        <th>Custom Instructies</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for page in pages %}
+                    <tr>
+                        <td style="text-align: center;">
+                            <input type="checkbox" name="page_include_{{ loop.index0 }}" value="1" checked class="page-cb">
+                            <input type="hidden" name="page_url_{{ loop.index0 }}" value="{{ page.url }}">
+                            <input type="hidden" name="page_path_{{ loop.index0 }}" value="{{ page.path }}">
+                        </td>
+                        <td>
+                            <strong style="color: var(--text);">{{ page.path }}</strong>
+                            <div class="text-muted" style="font-size: 0.72rem; word-break: break-all;">{{ page.url }}</div>
+                        </td>
+                        <td>
+                            <select name="page_category_{{ loop.index0 }}" class="custom-select-sm cat-select">
+                                {% for cat in categories %}
+                                <option value="{{ cat }}" {% if cat == page.assigned_category %}selected{% endif %}>
+                                    📁 {{ cat }}
+                                </option>
+                                {% endfor %}
+                                <option value="Algemeen" {% if 'Algemeen' == page.assigned_category %}selected{% endif %}>📁 Algemeen</option>
+                            </select>
+                        </td>
+                        <td>
+                            <select name="page_type_{{ loop.index0 }}" class="custom-select-sm">
+                                <option value="homepage" {% if page.guessed_type == 'homepage' %}selected{% endif %}>🏠 Homepage</option>
+                                <option value="service_page" {% if page.guessed_type == 'service_page' %}selected{% endif %}>🛠️ Service / Dienst</option>
+                                <option value="about_page" {% if page.guessed_type == 'about_page' %}selected{% endif %}>👥 About / Over Ons</option>
+                                <option value="contact_page" {% if page.guessed_type == 'contact_page' %}selected{% endif %}>✉️ Contact / Offerte</option>
+                                <option value="pricing_page" {% if page.guessed_type == 'pricing_page' %}selected{% endif %}>💳 Pricing / Tarieven</option>
+                                <option value="portfolio_page" {% if page.guessed_type == 'portfolio_page' %}selected{% endif %}>💼 Portfolio / Project</option>
+                                <option value="blog_listing" {% if page.guessed_type == 'blog_listing' %}selected{% endif %}>📰 Blog Overzicht</option>
+                                <option value="blog_post" {% if page.guessed_type == 'blog_post' %}selected{% endif %}>📝 Blog Post</option>
+                                <option value="faq_page" {% if page.guessed_type == 'faq_page' %}selected{% endif %}>❓ FAQ</option>
+                                <option value="general_page" {% if page.guessed_type == 'general_page' %}selected{% endif %}>📄 General Page</option>
+                            </select>
+                        </td>
+                        <td>
+                            <input type="text" name="page_instructions_{{ loop.index0 }}"
+                                   placeholder="e.g. Focus on pricing and photo gallery"
+                                   class="input-sm">
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div style="text-align: right; margin-top: 1.5rem; margin-bottom: 3rem;">
+        <button type="submit" id="start-btn" style="font-size: 1.05rem; padding: 0.85rem 2.2rem;">
+            ⚡ Start Intelligent Scrape & Category Synthesis
+        </button>
+    </div>
+</form>
+
+<script>
+function toggleSelectAll(select) {
+    document.querySelectorAll('.page-cb').forEach(cb => cb.checked = select);
+}
+
+document.getElementById('config-form').addEventListener('submit', function() {
+    const btn = document.getElementById('start-btn');
+    btn.disabled = true;
+    btn.innerHTML = '⚡ Launching Real-Time Monitor...';
+    btn.style.opacity = '0.8';
+});
+</script>
+{% endblock %}
