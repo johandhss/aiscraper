@@ -33,7 +33,10 @@ app.secret_key = "scraper-secure-session-key"
 
 scrape_jobs = {}
 job_lock = threading.Lock()
-JOB_DIR = os.path.join(tempfile.gettempdir(), "aiscraper_jobs")
+# Use /dev/shm (in-memory tmpfs) on Cloud Run for fast, reliable file I/O
+_shm_path = "/dev/shm/aiscraper_jobs"
+_tmp_path = os.path.join(tempfile.gettempdir(), "aiscraper_jobs")
+JOB_DIR = _shm_path if os.path.isdir("/dev/shm") else _tmp_path
 os.makedirs(JOB_DIR, exist_ok=True)
 
 
@@ -78,8 +81,9 @@ def get_max_concurrent_scrapers():
         except ValueError:
             pass
     cpu_count = os.cpu_count() or 2
-    # Memory-safe concurrency: max 3 parallel Playwright instances per container (avoids OOM on 2GB RAM)
-    return max(2, min(cpu_count, 3))
+    # Memory-safe concurrency: max 2 parallel Playwright instances per container
+    # Each Chromium browser uses ~200-300MB RAM; 2 browsers fits comfortably in 4Gi
+    return min(cpu_count, 2)
 
 
 
@@ -399,9 +403,10 @@ def _run_full_scrape_job(job_id, start_url, domain, pages_to_scrape, categories_
         )
         if not site:
             _add_event(job_id, "error", 0, 0, start_url, "Failed to create site in Supabase.")
-            with job_lock:
-                scrape_jobs[job_id]["done"] = True
-                scrape_jobs[job_id]["result"] = {"success": False, "message": "Database connection failed"}
+            job = _load_job(job_id) or {"events": []}
+            job["done"] = True
+            job["result"] = {"success": False, "message": "Database connection failed"}
+            _save_job(job_id, job)
             return
 
         site_id = site["id"]

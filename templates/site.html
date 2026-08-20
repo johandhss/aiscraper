@@ -80,13 +80,13 @@
                 {{ menu.menu_type }}
             </div>
             <ul style="margin: 0; padding-left: 1.2rem; font-size: 0.88rem;">
-                {% for item in menu.items %}
+                {% for item in menu['items'] %}
                 <li style="margin-bottom: 0.25rem;">
                     <strong>{{ item.label }}</strong>
                     <span class="text-muted" style="font-size: 0.75rem;">({{ item.url }})</span>
-                    {% if item.children %}
+                    {% if item.get('children') %}
                     <ul style="padding-left: 1rem; margin-top: 0.2rem;">
-                        {% for sub in item.children %}
+                        {% for sub in item['children'] %}
                         <li>{{ sub.label }} <span class="text-muted" style="font-size: 0.75rem;">({{ sub.url }})</span></li>
                         {% endfor %}
                     </ul>

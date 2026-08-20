@@ -6,7 +6,7 @@
 
 set -e
 
-SERVICE_NAME="${SERVICE_NAME:-website-scraper}"
+SERVICE_NAME="${SERVICE_NAME:-aiscraper}"
 REGION="${REGION:-europe-west4}"
 CPU="${CPU:-2}"
 MEMORY="${MEMORY:-4Gi}"
@@ -52,7 +52,7 @@ if [ -z "$MCP_API_KEY" ]; then
     MCP_API_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
 fi
 
-MAX_CONCURRENT_SCRAPERS="${MAX_CONCURRENT_SCRAPERS:-3}"
+MAX_CONCURRENT_SCRAPERS="${MAX_CONCURRENT_SCRAPERS:-2}"
 
 echo ""
 echo "📦 Building container image & deploying to Cloud Run..."
