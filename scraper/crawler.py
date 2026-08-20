@@ -1,4 +1,6 @@
+import requests
 import cloudscraper
+import traceback
 from urllib.parse import urljoin, urlparse, urlunparse
 from bs4 import BeautifulSoup
 
@@ -11,6 +13,20 @@ SKIP_EXTENSIONS = {
     ".ico", ".woff", ".woff2", ".ttf", ".eot",
 }
 
+DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "nl-NL,nl;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"macOS"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1"
+}
+
 
 def _get_scraper():
     return cloudscraper.create_scraper(
@@ -18,14 +34,24 @@ def _get_scraper():
     )
 
 
+def _clean_domain(netloc):
+    """Normalize domain by removing port and www. prefix for consistent matching."""
+    if not netloc:
+        return ""
+    domain = netloc.lower().split(":")[0].strip()
+    if domain.startswith("www."):
+        domain = domain[4:]
+    return domain
+
+
 def normalize_url(url):
     parsed = urlparse(url)
     path = parsed.path.rstrip("/") or "/"
     normalized = urlunparse((
-        parsed.scheme,
+        parsed.scheme or "https",
         parsed.netloc,
         path,
-        parsed.params,
+        "",
         parsed.query,
         ""
     ))
@@ -71,14 +97,37 @@ def guess_page_type(path, title="", h1=""):
     return "general_page"
 
 
+def _fetch_html(url, scraper_instance=None):
+    """Fetch HTML with fallback across requests and cloudscraper."""
+    # Attempt 1: Direct requests with modern browser headers
+    try:
+        r = requests.get(url, headers=DEFAULT_HEADERS, timeout=12, allow_redirects=True)
+        if r.status_code == 200 and "text/html" in r.headers.get("Content-Type", ""):
+            return r.text, r.url
+    except Exception as e:
+        pass
+
+    # Attempt 2: Cloudscraper (bypasses Cloudflare / anti-bot challenges)
+    try:
+        scraper = scraper_instance or _get_scraper()
+        r = scraper.get(url, timeout=15, allow_redirects=True)
+        if r.status_code == 200 and "text/html" in r.headers.get("Content-Type", ""):
+            return r.text, r.url
+    except Exception as e:
+        print(f"[Crawler] Error fetching {url}: {e}")
+
+    return None, url
+
+
 def crawl_site(start_url, max_pages=50, progress_callback=None):
     """
-    BFS crawl a website, returning a list of dicts with URL, path, title, h1, and meta_description.
+    BFS crawl a website with www-agnostic domain matching and multi-engine HTTP fetch.
+    Returns a list of dicts with URL, path, title, h1, and meta_description.
     """
     start_parsed = urlparse(start_url)
-    start_domain = start_parsed.netloc
+    start_domain_clean = _clean_domain(start_parsed.netloc)
 
-    if not start_domain:
+    if not start_domain_clean:
         return []
 
     scraper = _get_scraper()
@@ -97,19 +146,14 @@ def crawl_site(start_url, max_pages=50, progress_callback=None):
         if progress_callback:
             progress_callback("crawl", len(pages_data), max_pages, current_url)
 
+        html_text, final_url = _fetch_html(current_url, scraper)
+        if not html_text:
+            continue
+
         try:
-            response = scraper.get(current_url, timeout=15, allow_redirects=True)
+            soup = BeautifulSoup(html_text, "lxml")
 
-            if response.status_code != 200:
-                continue
-
-            content_type = response.headers.get("Content-Type", "")
-            if "text/html" not in content_type:
-                continue
-
-            soup = BeautifulSoup(response.text, "lxml")
-
-            # Extract basic title, h1, description for instant mini-analysis
+            # Extract title, h1, description for mini-analysis
             title = soup.title.string.strip() if soup.title and soup.title.string else ""
             h1_el = soup.find("h1")
             h1 = h1_el.get_text(separator=" ", strip=True)[:100] if h1_el else ""
@@ -128,16 +172,19 @@ def crawl_site(start_url, max_pages=50, progress_callback=None):
                 "guessed_type": guessed_type
             })
 
+            # Discover internal links
             for a_tag in soup.find_all("a", href=True):
                 href = a_tag["href"].strip()
 
                 if href.startswith(("javascript:", "mailto:", "tel:", "#")):
                     continue
 
-                full_url = urljoin(current_url, href)
+                full_url = urljoin(final_url or current_url, href)
                 normalized = normalize_url(full_url)
+                target_domain_clean = _clean_domain(urlparse(normalized).netloc)
 
-                if urlparse(normalized).netloc != start_domain:
+                # Match domain regardless of www. or subpath redirects
+                if target_domain_clean != start_domain_clean:
                     continue
 
                 if not is_crawlable(normalized):
@@ -146,7 +193,8 @@ def crawl_site(start_url, max_pages=50, progress_callback=None):
                 if normalized not in visited and normalized not in queue:
                     queue.append(normalized)
 
-        except Exception:
+        except Exception as e:
+            print(f"[Crawler] Parse error on {current_url}: {e}")
             continue
 
     return pages_data
