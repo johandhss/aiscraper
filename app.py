@@ -465,7 +465,8 @@ def scrape_progress(job_id):
                 if sites:
                     latest_site = sites[0]
                     pages = get_site_pages(latest_site["id"])
-                    if pages:
+                    scraped_pages = [p for p in pages if p.get("status") == "scraped"]
+                    if scraped_pages:
                         site_domain = latest_site.get("domain", "")
                         payload = {
                             "phase": "complete",
