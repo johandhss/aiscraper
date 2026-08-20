@@ -93,7 +93,7 @@ def process_and_upload_image(img_url, base_url, page_id, site_domain, alt_text="
 
     try:
         scraper = _get_scraper()
-        res = scraper.get(full_url, timeout=12)
+        res = scraper.get(full_url, timeout=5)
         if res.status_code == 200 and len(res.content) > 0:
             file_bytes = res.content
             file_size = len(file_bytes)

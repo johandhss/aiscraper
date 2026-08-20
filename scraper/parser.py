@@ -1,3 +1,4 @@
+import os
 import cloudscraper
 from bs4 import BeautifulSoup, NavigableString
 from urllib.parse import urljoin
@@ -7,7 +8,8 @@ import json
 
 from scraper.image_handler import process_and_upload_image, resolve_image_source
 from scraper.screenshot_handler import capture_page_screenshot_and_media
-from scraper.ai_labeler import classify_page_semantics
+from scraper.ai_labeler import classify_page_semantics, _heuristic_classification
+
 
 
 def _get_scraper():
@@ -175,15 +177,15 @@ def html_to_markdown(body_element):
 
 def parse_page(url_str, html_content=None, page_id=None, site_domain=None,
                page_type="", category_id=None, category_name="Algemeen",
-               scrape_instructions="", openai_model="gpt-5.4-nano",
-               openai_api_key=None, progress_callback=None):
+               scrape_instructions="", openai_model="gpt-4o-mini",
+               openai_api_key=None, progress_callback=None, enable_ai=True):
     """
     Parse a webpage:
     - Captures full-page screenshot using Playwright
     - Extracts hierarchical content blocks
     - Extracts all real images (lazy-loaded, srcset, background-images, dynamic DOM)
     - Extracts CTAs and links
-    - Classifies semantics with AI
+    - Classifies semantics with AI (optional) or fast heuristics
     """
     if not html_content:
         try:
@@ -308,32 +310,35 @@ def parse_page(url_str, html_content=None, page_id=None, site_domain=None,
                     "block_id": block_id
                 })
 
-        # Check for background images in inline styles
-        style_attr = node.attrs.get("style", "")
-        if style_attr and "url(" in style_attr.lower():
-            bg_match = re.search(r"url\(['\"]?(.*?)['\"]?\)", style_attr, re.IGNORECASE)
-            if bg_match and bg_match.group(1) and not bg_match.group(1).startswith("data:"):
-                bg_url = urljoin(url_str, bg_match.group(1))
-                raw_images_to_process.append({
-                    "src": bg_url,
-                    "alt": "Background Image",
-                    "section_context": section_path,
-                    "block_id": block_id
-                })
+        # Check for background images on sections / divs
+        if tag in ["div", "section", "header", "main"] and attrs:
+            bg_style = attrs.get("style", "")
+            if "background" in bg_style and "url(" in bg_style:
+                bg_match = re.search(r'url\([\'"]?([^\'")]+)[\'"]?\)', bg_style)
+                if bg_match:
+                    bg_url = bg_match.group(1)
+                    if not bg_url.startswith("data:"):
+                        full_bg = urljoin(url_str, bg_url)
+                        raw_images_to_process.append({
+                            "src": full_bg,
+                            "alt": f"Background: {section_path or tag}",
+                            "section_context": section_path,
+                            "block_id": block_id
+                        })
 
-        # Links/CTAs
-        if tag in ["a", "button"] or (attrs and "button" in str(attrs.get("class", "")).lower()):
-            href = node.get("href", "") or ""
-            link_text = _get_full_text(node)[:120]
-            if link_text and (href or tag == "button"):
+        # Check for links and CTA buttons
+        if tag == "a":
+            href = attrs.get("href", "")
+            link_text = _get_full_text(node)
+            if href and link_text:
                 raw_links_to_process.append({
                     "id": str(uuid.uuid4()),
-                    "text": link_text,
-                    "url": urljoin(url_str, href) if href else "#",
-                    "section_context": section_path,
-                    "attrs": attrs
+                    "url": href,
+                    "text": link_text[:120],
+                    "section_context": section_path
                 })
 
+        # Recursively process children
         for child in node.children:
             process_node(child, block_id, new_heading_level, new_heading_path)
 
@@ -342,11 +347,16 @@ def parse_page(url_str, html_content=None, page_id=None, site_domain=None,
         for child in body.children:
             process_node(child, None, 0, [])
 
-    # 4. Merge Playwright Rendered Images
+    # 4. Integrate Playwright Real DOM Images (lazy-loaded & dynamic)
+    seen_rendered = set()
     for pw_img in playwright_imgs:
+        src = pw_img["src"]
+        if src in seen_rendered:
+            continue
+        seen_rendered.add(src)
         raw_images_to_process.append({
-            "src": pw_img["src"],
-            "alt": pw_img["alt"],
+            "src": src,
+            "alt": pw_img.get("alt", ""),
             "section_context": "Main Content",
             "block_id": None,
             "dims": (pw_img["width"], pw_img["height"])
@@ -359,7 +369,7 @@ def parse_page(url_str, html_content=None, page_id=None, site_domain=None,
     if progress_callback:
         progress_callback("images", 0, len(raw_images_to_process), f"Processing {len(raw_images_to_process)} images...")
 
-    for raw_img in raw_images_to_process[:35]:
+    for raw_img in raw_images_to_process[:25]:
         src = raw_img["src"]
         if src in seen_img_urls:
             continue
@@ -398,22 +408,28 @@ def parse_page(url_str, html_content=None, page_id=None, site_domain=None,
             "is_primary": False
         })
 
-    # 7. AI Semantic Classification
-    if progress_callback:
-        progress_callback("ai", 0, 0, f"AI Semantic Analysis for {category_name}...")
+    # 7. Semantic Classification (AI or Instant Heuristic)
+    has_api_key = bool(openai_api_key or os.environ.get("OPENAI_API_KEY"))
+    if enable_ai and has_api_key:
+        if progress_callback:
+            progress_callback("ai", 0, 0, f"AI Semantic Analysis for {category_name}...")
 
-    ai_results = classify_page_semantics(
-        page_url=url_str,
-        page_title=title,
-        page_type=page_type,
-        scrape_instructions=scrape_instructions,
-        sections_data=blocks,
-        images_data=processed_images,
-        links_data=processed_links,
-        category_name=category_name,
-        model=openai_model,
-        api_key=openai_api_key
-    )
+        ai_results = classify_page_semantics(
+            page_url=url_str,
+            page_title=title,
+            page_type=page_type,
+            scrape_instructions=scrape_instructions,
+            sections_data=blocks,
+            images_data=processed_images,
+            links_data=processed_links,
+            category_name=category_name,
+            model=openai_model,
+            api_key=openai_api_key
+        )
+    else:
+        if progress_callback:
+            progress_callback("heuristic", 0, 0, f"Heuristic layout classification for {category_name}...")
+        ai_results = _heuristic_classification(blocks, processed_images, processed_links)
 
     section_class_map = {item["block_id"]: item.get("section_type") for item in ai_results.get("sections", [])}
     for b in blocks:

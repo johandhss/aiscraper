@@ -124,6 +124,7 @@ def crawl():
     openai_model = request.form.get("openai_model", "gpt-4o-mini")
     categories_input = request.form.get("categories", "").strip()
     business_context = request.form.get("business_context", "").strip()
+    enable_ai = request.form.get("enable_ai") in ["1", "true", "on", "yes"]
 
     if not url:
         flash("Website URL is required", "error")
@@ -160,13 +161,25 @@ def crawl():
         flash(f"Could not discover any pages on {domain}. Please verify the URL.", "error")
         return redirect(url_for("index"))
 
-    # AI category matching with mini-analysis
-    category_matches = match_pages_to_categories(
-        pages_list=pages_preview,
-        predefined_categories=category_list,
-        business_context=business_context,
-        model=openai_model
-    )
+    # Category matching (AI or instant keyword heuristics)
+    if enable_ai and os.environ.get("OPENAI_API_KEY"):
+        category_matches = match_pages_to_categories(
+            pages_list=pages_preview,
+            predefined_categories=category_list,
+            business_context=business_context,
+            model=openai_model
+        )
+    else:
+        category_matches = {}
+        for p in pages_preview:
+            matched = category_list[0]
+            p_text = f"{p.get('path', '')} {p.get('title', '')} {p.get('h1', '')}".lower()
+            for c in category_list:
+                c_clean = c.lower().strip()
+                if any(w in p_text for w in c_clean.split() if len(w) > 3):
+                    matched = c
+                    break
+            category_matches[p["url"]] = matched
 
     for p in pages_preview:
         p["assigned_category"] = category_matches.get(p["url"], category_list[0])
@@ -183,7 +196,8 @@ def crawl():
         business_context=business_context,
         models=models,
         selected_model=openai_model,
-        has_openai_key=has_openai_key
+        has_openai_key=has_openai_key,
+        enable_ai=enable_ai
     )
 
 
@@ -192,10 +206,11 @@ def crawl():
 def scrape_execute():
     start_url = request.form.get("start_url", "").strip()
     domain = request.form.get("domain", "").strip()
-    openai_model = request.form.get("openai_model", "gpt-5.4-nano")
+    openai_model = request.form.get("openai_model", "gpt-4o-mini")
     business_context = request.form.get("business_context", "").strip()
     global_instructions = request.form.get("global_instructions", "").strip()
     all_categories_str = request.form.get("all_categories", "").strip()
+    enable_ai = request.form.get("enable_ai") in ["1", "true", "on", "yes"]
 
     # Collect categories
     categories_set = []
@@ -241,7 +256,7 @@ def scrape_execute():
 
     thread = threading.Thread(
         target=_run_full_scrape_job,
-        args=(job_id, start_url, domain, pages_to_scrape, categories_set, business_context, openai_model),
+        args=(job_id, start_url, domain, pages_to_scrape, categories_set, business_context, openai_model, enable_ai),
         daemon=True
     )
     thread.start()
@@ -264,7 +279,7 @@ def _add_event(job_id, phase, current, total, url, message=""):
 
 
 
-def _scrape_single_page_worker(p_info, site_id, domain, category_map, openai_model, job_id, total_pages, shared_state):
+def _scrape_single_page_worker(p_info, site_id, domain, category_map, openai_model, job_id, total_pages, shared_state, enable_ai=True):
     """Worker task to scrape a single page concurrently with thread-safe progress reporting."""
     page_url = p_info["url"]
     path = p_info["path"]
@@ -307,7 +322,8 @@ def _scrape_single_page_worker(p_info, site_id, domain, category_map, openai_mod
             category_name=cat_name,
             scrape_instructions=instructions,
             openai_model=openai_model,
-            progress_callback=page_progress_callback
+            progress_callback=page_progress_callback,
+            enable_ai=enable_ai
         )
     except Exception as e:
         parsed_data = {"error": str(e)}
@@ -387,7 +403,7 @@ def _scrape_single_page_worker(p_info, site_id, domain, category_map, openai_mod
     return parsed_data
 
 
-def _run_full_scrape_job(job_id, start_url, domain, pages_to_scrape, categories_list, business_context, openai_model):
+def _run_full_scrape_job(job_id, start_url, domain, pages_to_scrape, categories_list, business_context, openai_model, enable_ai=True):
     try:
         total_pages = len(pages_to_scrape)
         concurrency = get_max_concurrent_scrapers()
@@ -397,7 +413,7 @@ def _run_full_scrape_job(job_id, start_url, domain, pages_to_scrape, categories_
         site = upsert_site(
             domain=domain,
             name=domain,
-            openai_model=openai_model,
+            openai_model=openai_model if enable_ai else "heuristic",
             business_context=business_context,
             predefined_categories=categories_list
         )
@@ -440,7 +456,7 @@ def _run_full_scrape_job(job_id, start_url, domain, pages_to_scrape, categories_
             futures = [
                 executor.submit(
                     _scrape_single_page_worker,
-                    p_info, site_id, domain, category_map, openai_model, job_id, total_pages, shared_state
+                    p_info, site_id, domain, category_map, openai_model, job_id, total_pages, shared_state, enable_ai
                 )
                 for p_info in pages_to_scrape
             ]
@@ -449,23 +465,35 @@ def _run_full_scrape_job(job_id, start_url, domain, pages_to_scrape, categories_
         scraped_count = shared_state["scraped_count"]
         error_count = shared_state["error_count"]
 
-        # 4. Post-scrape: Category AI Synthesis
-        _add_event(job_id, "synthesis", total_pages, total_pages, start_url, "Synthesizing business category overviews & USPs...")
-        for cat_name, cat_pages in shared_state["scraped_pages_by_category"].items():
-            cat_id = category_map.get(cat_name)
-            if cat_id and cat_pages:
-                synthesis = generate_category_synthesis(
-                    category_name=cat_name,
-                    category_content_list=cat_pages,
-                    business_context=business_context,
-                    model=openai_model
-                )
-                update_category_synthesis(
-                    category_id=cat_id,
-                    summary=synthesis.get("summary", ""),
-                    target_audience=synthesis.get("target_audience", ""),
-                    usps=synthesis.get("usps", [])
-                )
+        # 4. Post-scrape: Category AI Synthesis (or fast heuristic overview)
+        if enable_ai and os.environ.get("OPENAI_API_KEY"):
+            _add_event(job_id, "synthesis", total_pages, total_pages, start_url, "Synthesizing business category overviews & USPs with AI...")
+            for cat_name, cat_pages in shared_state["scraped_pages_by_category"].items():
+                cat_id = category_map.get(cat_name)
+                if cat_id and cat_pages:
+                    synthesis = generate_category_synthesis(
+                        category_name=cat_name,
+                        category_content_list=cat_pages,
+                        business_context=business_context,
+                        model=openai_model
+                    )
+                    update_category_synthesis(
+                        category_id=cat_id,
+                        summary=synthesis.get("summary", ""),
+                        target_audience=synthesis.get("target_audience", ""),
+                        usps=synthesis.get("usps", [])
+                    )
+        else:
+            _add_event(job_id, "synthesis", total_pages, total_pages, start_url, "Finalizing category knowledge pillars...")
+            for cat_name, cat_pages in shared_state["scraped_pages_by_category"].items():
+                cat_id = category_map.get(cat_name)
+                if cat_id and cat_pages:
+                    update_category_synthesis(
+                        category_id=cat_id,
+                        summary=f"Bedrijfspijler {cat_name} ({len(cat_pages)} pagina's)",
+                        target_audience="Doelgroep & geïnteresseerden",
+                        usps=[p["title"] for p in cat_pages[:3] if p.get("title")]
+                    )
 
         msg = f"Successfully scraped {scraped_count} pages across {len(categories_list)} business categories from {domain}"
         if error_count > 0:
