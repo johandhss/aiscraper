@@ -13,7 +13,7 @@ threads = int(os.environ.get("GUNICORN_THREADS", 16))
 worker_class = "gthread"
 
 # Timeouts & Keep-alive (Cloud Run supports up to 3600s request timeout)
-timeout = int(os.environ.get("GUNICORN_TIMEOUT", 600))
+timeout = int(os.environ.get("GUNICORN_TIMEOUT", 1800))
 keepalive = 120
 graceful_timeout = 30
 

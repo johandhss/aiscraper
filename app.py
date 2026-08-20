@@ -121,7 +121,7 @@ def save_api_key():
 def crawl():
     url = request.form.get("url", "").strip()
     max_pages = request.form.get("max_pages", "30")
-    openai_model = request.form.get("openai_model", "gpt-5.4-nano")
+    openai_model = request.form.get("openai_model", "gpt-4o-mini")
     categories_input = request.form.get("categories", "").strip()
     business_context = request.form.get("business_context", "").strip()
 
@@ -534,6 +534,7 @@ def scrape_progress(job_id):
             return
 
         last_index = 0
+        ping_cycles = 0
         while True:
             job = _load_job(job_id)
             if not job:
@@ -544,10 +545,18 @@ def scrape_progress(job_id):
             is_done = job.get("done", False)
             result = job.get("result", {})
 
-            while last_index < len(events):
-                event = events[last_index]
-                yield f"data: {json.dumps(event)}\n\n"
-                last_index += 1
+            if last_index < len(events):
+                while last_index < len(events):
+                    event = events[last_index]
+                    yield f"data: {json.dumps(event)}\n\n"
+                    last_index += 1
+                ping_cycles = 0
+            else:
+                # Send periodic keepalive heartbeat comment every 3s to keep Cloud Run proxy open
+                ping_cycles += 1
+                if ping_cycles >= 10:
+                    yield ": keepalive\n\n"
+                    ping_cycles = 0
 
             if is_done:
                 yield f"data: {json.dumps({'phase': 'complete', 'result': result})}\n\n"

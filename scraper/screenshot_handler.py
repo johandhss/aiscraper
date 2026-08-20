@@ -42,21 +42,20 @@ def capture_page_screenshot_and_media(page_url, page_id, site_domain):
             )
             page = context.new_page()
 
-            # Navigate with 20s timeout — domcontentloaded + networkidle fallback
+            # Navigate with 15s timeout — domcontentloaded
             try:
-                page.goto(page_url, wait_until="domcontentloaded", timeout=20000)
-                # Give extra time for JS frameworks to hydrate
-                time.sleep(1.5)
+                page.goto(page_url, wait_until="domcontentloaded", timeout=15000)
+                time.sleep(0.5)
             except Exception as e:
                 print(f"[Screenshot] Navigation timeout/issue on {page_url}: {e}", flush=True)
 
-            # Deep smooth scroll — scroll the ENTIRE page step by step to trigger ALL lazy-loaded content
+            # Fast smooth scroll to trigger lazy-loaded images without stalling
             try:
                 page.evaluate("""async () => {
                     await new Promise((resolve) => {
                         let totalHeight = 0;
-                        const distance = 400;
-                        const maxScrolls = 60;
+                        const distance = 800;
+                        const maxScrolls = 25;
                         let count = 0;
                         const timer = setInterval(() => {
                             const scrollHeight = document.body.scrollHeight;
@@ -67,30 +66,12 @@ def capture_page_screenshot_and_media(page_url, page_id, site_domain):
                                 clearInterval(timer);
                                 resolve();
                             }
-                        }, 120);
+                        }, 50);
                     });
                 }""")
-                # Wait for lazy-loaded images to actually load after scroll
-                time.sleep(2.0)
-                # Scroll back to top for the screenshot
+                time.sleep(0.6)
                 page.evaluate("window.scrollTo(0, 0)")
-                time.sleep(0.5)
-            except Exception:
-                pass
-
-            # Wait for all images to finish loading
-            try:
-                page.evaluate("""() => {
-                    return Promise.all(
-                        Array.from(document.images)
-                            .filter(img => !img.complete)
-                            .map(img => new Promise((resolve) => {
-                                img.addEventListener('load', resolve, {once: true});
-                                img.addEventListener('error', resolve, {once: true});
-                                setTimeout(resolve, 3000);
-                            }))
-                    );
-                }""")
+                time.sleep(0.3)
             except Exception:
                 pass
 

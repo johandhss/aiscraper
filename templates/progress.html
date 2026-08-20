@@ -161,13 +161,18 @@ source.onmessage = function(event) {
     }
 };
 
-source.onerror = function() {
-    source.close();
-    spinnerEl.classList.add("done");
-    titleEl.textContent = "Connection closed or finished";
-    doneEl.style.display = "block";
-    doneLinkEl.href = "/";
-    doneLinkEl.textContent = "← Back to Home";
+let errorCount = 0;
+source.onerror = function(err) {
+    errorCount++;
+    console.warn("SSE connection error or reconnecting...", err);
+    if (errorCount > 10) {
+        source.close();
+        spinnerEl.classList.add("done");
+        titleEl.textContent = "Connection closed or finished";
+        doneEl.style.display = "block";
+        doneLinkEl.href = "/";
+        doneLinkEl.textContent = "← Back to Home";
+    }
 };
 </script>
 {% endblock %}
