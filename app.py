@@ -26,11 +26,46 @@ from scraper.page_structure import generate_page_structure, generate_page_struct
 
 load_dotenv()
 
+import tempfile
+
 app = Flask(__name__)
 app.secret_key = "scraper-secure-session-key"
 
 scrape_jobs = {}
 job_lock = threading.Lock()
+JOB_DIR = os.path.join(tempfile.gettempdir(), "aiscraper_jobs")
+os.makedirs(JOB_DIR, exist_ok=True)
+
+
+def _get_job_file(job_id):
+    return os.path.join(JOB_DIR, f"{job_id}.json")
+
+
+def _load_job(job_id):
+    """Load job from shared tmpfs file or in-memory dict."""
+    fpath = _get_job_file(job_id)
+    if os.path.exists(fpath):
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    with job_lock:
+        return scrape_jobs.get(job_id)
+
+
+def _save_job(job_id, job_data):
+    """Save job state to both in-memory dict and shared tmpfs file for multi-worker access."""
+    with job_lock:
+        scrape_jobs[job_id] = job_data
+    try:
+        fpath = _get_job_file(job_id)
+        tmp_fpath = f"{fpath}.tmp"
+        with open(tmp_fpath, "w", encoding="utf-8") as f:
+            json.dump(job_data, f)
+        os.replace(tmp_fpath, fpath)
+    except Exception as e:
+        print(f"Error persisting job file: {e}")
 
 
 def get_max_concurrent_scrapers():
@@ -44,6 +79,7 @@ def get_max_concurrent_scrapers():
     cpu_count = os.cpu_count() or 2
     # Cloud Run rule of thumb: 2 browser workers per vCPU, capped between 2 and 16
     return max(2, min(cpu_count * 2, 16))
+
 
 
 
@@ -195,7 +231,7 @@ def scrape_execute():
         return redirect(url_for("index"))
 
     job_id = str(uuid_lib.uuid4())[:8]
-    scrape_jobs[job_id] = {"events": [], "done": False, "result": {}}
+    _save_job(job_id, {"events": [], "done": False, "result": {}})
 
     thread = threading.Thread(
         target=_run_full_scrape_job,
@@ -208,17 +244,18 @@ def scrape_execute():
 
 
 def _add_event(job_id, phase, current, total, url, message=""):
-    with job_lock:
-        if job_id in scrape_jobs:
-            event = {
-                "phase": phase,
-                "current": current,
-                "total": total,
-                "url": url,
-                "message": message,
-                "timestamp": time.time()
-            }
-            scrape_jobs[job_id]["events"].append(event)
+    event = {
+        "phase": phase,
+        "current": current,
+        "total": total,
+        "url": url,
+        "message": message,
+        "timestamp": time.time()
+    }
+    job = _load_job(job_id) or {"events": [], "done": False, "result": {}}
+    job["events"].append(event)
+    _save_job(job_id, job)
+
 
 
 def _scrape_single_page_worker(p_info, site_id, domain, category_map, openai_model, job_id, total_pages, shared_state):
@@ -428,34 +465,35 @@ def _run_full_scrape_job(job_id, start_url, domain, pages_to_scrape, categories_
             msg += f" ({error_count} errors)"
 
         _add_event(job_id, "done", total_pages, total_pages, start_url, msg)
-        with job_lock:
-            scrape_jobs[job_id]["done"] = True
-            scrape_jobs[job_id]["result"] = {
-                "success": True,
-                "site_id": site_id,
-                "scraped": scraped_count,
-                "errors": error_count,
-                "concurrency": concurrency,
-                "message": msg
-            }
+        job = _load_job(job_id) or {"events": []}
+        job["done"] = True
+        job["result"] = {
+            "success": True,
+            "site_id": site_id,
+            "scraped": scraped_count,
+            "errors": error_count,
+            "concurrency": concurrency,
+            "message": msg
+        }
+        _save_job(job_id, job)
 
     except Exception as e:
         _add_event(job_id, "error", 0, 0, start_url, f"Unexpected error: {str(e)}")
-        with job_lock:
-            scrape_jobs[job_id]["done"] = True
-            scrape_jobs[job_id]["result"] = {"success": False, "message": str(e)}
+        job = _load_job(job_id) or {"events": []}
+        job["done"] = True
+        job["result"] = {"success": False, "message": str(e)}
+        _save_job(job_id, job)
 
 
 @app.route("/scrape/progress/<job_id>")
 def scrape_progress(job_id):
     def generate():
-        # Retry loop to avoid race conditions during thread start
+        # Wait up to 5 seconds for the job to register across threads/processes
         job = None
-        for _ in range(12):  # wait up to 3 seconds for job to register
-            with job_lock:
-                if job_id in scrape_jobs:
-                    job = scrape_jobs[job_id]
-                    break
+        for _ in range(20):
+            job = _load_job(job_id)
+            if job and len(job.get("events", [])) > 0:
+                break
             time.sleep(0.25)
 
         if not job:
@@ -490,10 +528,14 @@ def scrape_progress(job_id):
 
         last_index = 0
         while True:
-            with job_lock:
-                events = list(job["events"])
-                is_done = job["done"]
-                result = dict(job["result"])
+            job = _load_job(job_id)
+            if not job:
+                time.sleep(0.3)
+                continue
+
+            events = job.get("events", [])
+            is_done = job.get("done", False)
+            result = job.get("result", {})
 
             while last_index < len(events):
                 event = events[last_index]
