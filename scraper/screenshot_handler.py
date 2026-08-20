@@ -29,10 +29,12 @@ def capture_page_screenshot_and_media(page_url, page_id, site_domain):
                     "--disable-gpu",
                     "--no-first-run",
                     "--no-zygote",
+                    "--single-process",
                     "--disable-extensions",
                     "--disable-background-networking",
                     "--disable-default-apps",
-                    "--disable-sync"
+                    "--disable-sync",
+                    "--js-flags=--max-old-space-size=256"
                 ]
             )
             context = browser.new_context(

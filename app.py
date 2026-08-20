@@ -59,8 +59,9 @@ def _save_job(job_id, job_data):
     with job_lock:
         scrape_jobs[job_id] = job_data
     try:
+        os.makedirs(JOB_DIR, exist_ok=True)
         fpath = _get_job_file(job_id)
-        tmp_fpath = f"{fpath}.tmp"
+        tmp_fpath = os.path.join(JOB_DIR, f"{job_id}_{os.getpid()}_{time.time_ns()}.tmp")
         with open(tmp_fpath, "w", encoding="utf-8") as f:
             json.dump(job_data, f)
         os.replace(tmp_fpath, fpath)
@@ -77,8 +78,9 @@ def get_max_concurrent_scrapers():
         except ValueError:
             pass
     cpu_count = os.cpu_count() or 2
-    # Cloud Run rule of thumb: 2 browser workers per vCPU, capped between 2 and 16
-    return max(2, min(cpu_count * 2, 16))
+    # Memory-safe concurrency: max 3 parallel Playwright instances per container (avoids OOM on 2GB RAM)
+    return max(2, min(cpu_count, 3))
+
 
 
 
