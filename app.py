@@ -264,13 +264,14 @@ def scrape_execute():
     return render_template("progress.html", job_id=job_id, domain=domain, total_pages=len(pages_to_scrape))
 
 
-def _add_event(job_id, phase, current, total, url, message=""):
+def _add_event(job_id, phase, current, total, url, message="", sub_progress=0.0):
     event = {
         "phase": phase,
         "current": current,
         "total": total,
         "url": url,
         "message": message,
+        "sub_progress": sub_progress,
         "timestamp": time.time()
     }
     job = _load_job(job_id) or {"events": [], "done": False, "result": {}}
@@ -288,7 +289,7 @@ def _scrape_single_page_worker(p_info, site_id, domain, category_map, openai_mod
     cat_id = category_map.get(cat_name)
     instructions = p_info["instructions"]
 
-    _add_event(job_id, "scrape", shared_state["completed_count"], total_pages, page_url, f"Scraping [{cat_name}] {path}")
+    _add_event(job_id, "scrape", shared_state["completed_count"], total_pages, page_url, f"Scraping [{cat_name}] {path}", sub_progress=0.15)
 
     # Create or update page in DB (initial pending record)
     page = upsert_page(
@@ -310,7 +311,15 @@ def _scrape_single_page_worker(p_info, site_id, domain, category_map, openai_mod
     page_id = page["id"]
 
     def page_progress_callback(sub_phase, cur, tot, msg):
-        _add_event(job_id, "scrape_sub", shared_state["completed_count"], total_pages, page_url, f"[{path}] {msg}")
+        sub_progress = 0.25
+        if sub_phase == "screenshot":
+            sub_progress = 0.40
+        elif sub_phase == "images":
+            sub_progress = 0.65
+        elif sub_phase in ["ai", "heuristic"]:
+            sub_progress = 0.85
+        _add_event(job_id, "scrape_sub", shared_state["completed_count"], total_pages, page_url, f"[{path}] {msg}", sub_progress=sub_progress)
+
 
     try:
         parsed_data = parse_page(
