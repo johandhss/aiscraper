@@ -47,9 +47,13 @@ def _clean_domain(netloc):
 def normalize_url(url):
     parsed = urlparse(url)
     path = parsed.path.rstrip("/") or "/"
+    # Strip www. to prevent duplicate pages (me-studio.nl == www.me-studio.nl)
+    netloc = parsed.netloc
+    if netloc.lower().startswith("www."):
+        netloc = netloc[4:]
     normalized = urlunparse((
         parsed.scheme or "https",
-        parsed.netloc,
+        netloc,
         path,
         "",
         parsed.query,
