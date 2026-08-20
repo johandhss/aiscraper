@@ -449,30 +449,61 @@ def _run_full_scrape_job(job_id, start_url, domain, pages_to_scrape, categories_
 @app.route("/scrape/progress/<job_id>")
 def scrape_progress(job_id):
     def generate():
-        if job_id not in scrape_jobs:
-            yield f"data: {json.dumps({'phase': 'error', 'message': 'Job not found'})}\n\n"
+        # Retry loop to avoid race conditions during thread start
+        job = None
+        for _ in range(12):  # wait up to 3 seconds for job to register
+            with job_lock:
+                if job_id in scrape_jobs:
+                    job = scrape_jobs[job_id]
+                    break
+            time.sleep(0.25)
+
+        if not job:
+            # Fallback: Check if the site was already scraped in Supabase
+            try:
+                sites = get_all_sites()
+                if sites:
+                    latest_site = sites[0]
+                    pages = get_site_pages(latest_site["id"])
+                    if pages:
+                        site_domain = latest_site.get("domain", "")
+                        payload = {
+                            "phase": "complete",
+                            "result": {
+                                "success": True,
+                                "site_id": latest_site["id"],
+                                "message": f"Site {site_domain} ready in database"
+                            }
+                        }
+                        yield f"data: {json.dumps(payload)}\n\n"
+                        return
+            except Exception:
+                pass
+
+            err_payload = {
+                "phase": "error",
+                "message": "Job session expired or server reloaded. Please refresh or re-start crawl."
+            }
+            yield f"data: {json.dumps(err_payload)}\n\n"
             return
 
         last_index = 0
         while True:
-            job = scrape_jobs.get(job_id)
-            if not job:
-                break
+            with job_lock:
+                events = list(job["events"])
+                is_done = job["done"]
+                result = dict(job["result"])
 
-            events = job["events"]
             while last_index < len(events):
                 event = events[last_index]
                 yield f"data: {json.dumps(event)}\n\n"
                 last_index += 1
 
-            if job["done"]:
-                yield f"data: {json.dumps({'phase': 'complete', 'result': job['result']})}\n\n"
+            if is_done:
+                yield f"data: {json.dumps({'phase': 'complete', 'result': result})}\n\n"
                 break
 
-            time.sleep(0.25)
-
-        time.sleep(5)
-        scrape_jobs.pop(job_id, None)
+            time.sleep(0.3)
 
     return Response(generate(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
