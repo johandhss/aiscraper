@@ -70,7 +70,7 @@ gcloud run deploy "$SERVICE_NAME" \
     --min-instances "$MIN_INSTANCES" \
     --max-instances "$MAX_INSTANCES" \
     --no-cpu-throttling \
-    --set-env-vars "SUPABASE_URL=${SUPABASE_URL},SUPABASE_KEY=${SUPABASE_KEY},OPENAI_API_KEY=${OPENAI_API_KEY},MCP_API_KEY=${MCP_API_KEY},MAX_CONCURRENT_SCRAPERS=${MAX_CONCURRENT_SCRAPERS},PORT=8080"
+    --set-env-vars "SUPABASE_URL=${SUPABASE_URL},SUPABASE_KEY=${SUPABASE_KEY},OPENAI_API_KEY=${OPENAI_API_KEY},MCP_API_KEY=${MCP_API_KEY},MAX_CONCURRENT_SCRAPERS=${MAX_CONCURRENT_SCRAPERS}"
 
 echo ""
 echo "=================================================================="
