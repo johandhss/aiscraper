@@ -419,7 +419,12 @@ def get_page_links(page_id):
 
 
 # --- Supabase Storage for Images & Screenshots ---
+_bucket_checked = False
+
 def ensure_storage_bucket():
+    global _bucket_checked
+    if _bucket_checked:
+        return True
     client = get_supabase()
     if not client: return False
     try:
@@ -427,8 +432,10 @@ def ensure_storage_bucket():
         bucket_names = [b.name for b in buckets] if buckets else []
         if STORAGE_BUCKET not in bucket_names:
             client.storage.create_bucket(STORAGE_BUCKET, options={"public": True})
+        _bucket_checked = True
         return True
-    except Exception as e:
+    except Exception:
+        _bucket_checked = True
         return True
 
 

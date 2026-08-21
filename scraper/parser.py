@@ -369,12 +369,13 @@ def parse_page(url_str, html_content=None, page_id=None, site_domain=None,
     if progress_callback:
         progress_callback("images", 0, len(raw_images_to_process), f"Processing {len(raw_images_to_process)} images...")
 
-    for raw_img in raw_images_to_process[:25]:
+    for idx, raw_img in enumerate(raw_images_to_process[:20]):
         src = raw_img["src"]
         if src in seen_img_urls:
             continue
         seen_img_urls.add(src)
 
+        should_upload = idx < 6
         img_record = process_and_upload_image(
             img_url=src,
             base_url=url_str,
@@ -383,7 +384,8 @@ def parse_page(url_str, html_content=None, page_id=None, site_domain=None,
             alt_text=raw_img.get("alt", ""),
             section_context=raw_img.get("section_context", ""),
             block_id=raw_img.get("block_id"),
-            predefined_dims=raw_img.get("dims")
+            predefined_dims=raw_img.get("dims"),
+            upload_to_storage=should_upload
         )
         if img_record:
             img_record["category_id"] = category_id

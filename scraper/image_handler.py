@@ -70,19 +70,17 @@ def resolve_image_source(img_element, base_url):
     return None, attrs.get("alt", "")
 
 
-def process_and_upload_image(img_url, base_url, page_id, site_domain, alt_text="", section_context="", block_id=None, predefined_dims=None):
+def process_and_upload_image(img_url, base_url, page_id, site_domain, alt_text="", section_context="", block_id=None, predefined_dims=None, upload_to_storage=True):
     """
-    Download image, extract dimensions, upload to Supabase Storage, and return image metadata record.
+    Download image, extract dimensions, upload to Supabase Storage (if requested), and return image metadata record.
     """
     if not img_url:
         return None
 
     full_url = urljoin(base_url, img_url).split("#")[0]
     
-    if full_url.startswith("data:") or full_url.endswith(".svg"):
-        # We can still record svg or data if needed, but for storage skip placeholder svgs
-        if "viewBox" in full_url or len(full_url) < 200 and "svg" in full_url:
-            return None
+    if full_url.startswith("data:") or (len(full_url) < 200 and "svg" in full_url):
+        return None
 
     image_id = str(uuid.uuid4())
     width = predefined_dims[0] if predefined_dims and predefined_dims[0] else None
@@ -91,35 +89,36 @@ def process_and_upload_image(img_url, base_url, page_id, site_domain, alt_text="
     public_url = full_url
     storage_path = None
 
-    try:
-        scraper = _get_scraper()
-        res = scraper.get(full_url, timeout=5)
-        if res.status_code == 200 and len(res.content) > 0:
-            file_bytes = res.content
-            file_size = len(file_bytes)
-            content_type = res.headers.get("Content-Type", "image/jpeg").split(";")[0]
+    if upload_to_storage:
+        try:
+            scraper = _get_scraper()
+            res = scraper.get(full_url, timeout=4)
+            if res.status_code == 200 and len(res.content) > 0:
+                file_bytes = res.content
+                file_size = len(file_bytes)
+                content_type = res.headers.get("Content-Type", "image/jpeg").split(";")[0]
 
-            # Try to get dimensions with Pillow
-            try:
-                with Image.open(io.BytesIO(file_bytes)) as pil_img:
-                    width, height = pil_img.size
-                    img_format = (pil_img.format or "JPEG").lower()
-                    if not content_type or "octet" in content_type:
-                        content_type = f"image/{img_format}"
-            except Exception:
-                pass
+                # Try to get dimensions with Pillow
+                try:
+                    with Image.open(io.BytesIO(file_bytes)) as pil_img:
+                        width, height = pil_img.size
+                        img_format = (pil_img.format or "JPEG").lower()
+                        if not content_type or "octet" in content_type:
+                            content_type = f"image/{img_format}"
+                except Exception:
+                    pass
 
-            ext = mimetypes.guess_extension(content_type) or ".jpg"
-            if ext == ".jpe": ext = ".jpg"
+                ext = mimetypes.guess_extension(content_type) or ".jpg"
+                if ext == ".jpe": ext = ".jpg"
 
-            storage_path = f"{site_domain}/{page_id}/{image_id}{ext}"
-            
-            uploaded_url = upload_image_to_storage(file_bytes, storage_path, content_type)
-            if uploaded_url:
-                public_url = uploaded_url
+                storage_path = f"{site_domain}/{page_id}/{image_id}{ext}"
+                
+                uploaded_url = upload_image_to_storage(file_bytes, storage_path, content_type)
+                if uploaded_url:
+                    public_url = uploaded_url
 
-    except Exception as e:
-        print(f"Failed to download/upload image ({full_url}): {e}")
+        except Exception as e:
+            pass
 
     return {
         "id": image_id,

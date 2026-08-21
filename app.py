@@ -32,7 +32,7 @@ app = Flask(__name__)
 app.secret_key = "scraper-secure-session-key"
 
 scrape_jobs = {}
-job_lock = threading.Lock()
+job_lock = threading.RLock()
 # Use /dev/shm (in-memory tmpfs) on Cloud Run for fast, reliable file I/O
 _shm_path = "/dev/shm/aiscraper_jobs"
 _tmp_path = os.path.join(tempfile.gettempdir(), "aiscraper_jobs")
@@ -274,6 +274,7 @@ def _add_event(job_id, phase, current, total, url, message="", sub_progress=0.0)
         "sub_progress": sub_progress,
         "timestamp": time.time()
     }
+    print(f"[Scrape Log] [{phase}] ({current}/{total}) {message}", flush=True)
     job = _load_job(job_id) or {"events": [], "done": False, "result": {}}
     job["events"].append(event)
     _save_job(job_id, job)
@@ -305,7 +306,8 @@ def _scrape_single_page_worker(p_info, site_id, domain, category_map, openai_mod
         with job_lock:
             shared_state["error_count"] += 1
             shared_state["completed_count"] += 1
-            _add_event(job_id, "page_error", shared_state["completed_count"], total_pages, page_url, f"Database error creating page for {path}")
+            cur_completed = shared_state["completed_count"]
+        _add_event(job_id, "page_error", cur_completed, total_pages, page_url, f"Database error creating page for {path}")
         return None
 
     page_id = page["id"]
@@ -342,7 +344,8 @@ def _scrape_single_page_worker(p_info, site_id, domain, category_map, openai_mod
         with job_lock:
             shared_state["error_count"] += 1
             shared_state["completed_count"] += 1
-            _add_event(job_id, "page_error", shared_state["completed_count"], total_pages, page_url, f"Error on {path}: {parsed_data['error'][:120]}")
+            cur_completed = shared_state["completed_count"]
+        _add_event(job_id, "page_error", cur_completed, total_pages, page_url, f"Error on {path}: {parsed_data['error'][:120]}")
         return None
 
     try:
@@ -407,6 +410,7 @@ def _scrape_single_page_worker(p_info, site_id, domain, category_map, openai_mod
         with job_lock:
             shared_state["scraped_count"] += 1
             shared_state["completed_count"] += 1
+            cur_completed = shared_state["completed_count"]
             if cat_name in shared_state["scraped_pages_by_category"]:
                 shared_state["scraped_pages_by_category"][cat_name].append({
                     "title": parsed_data.get("title", ""),
@@ -414,17 +418,18 @@ def _scrape_single_page_worker(p_info, site_id, domain, category_map, openai_mod
                     "raw_markdown": parsed_data.get("raw_markdown", "")
                 })
 
-            _add_event(
-                job_id, "page_done", shared_state["completed_count"], total_pages, page_url,
-                f"✓ ({shared_state['completed_count']}/{total_pages}) {path} [{cat_name}] — {len(blocks)} blocks, {len(images)} images, {len(links)} CTAs"
-            )
+        _add_event(
+            job_id, "page_done", cur_completed, total_pages, page_url,
+            f"✓ ({cur_completed}/{total_pages}) {path} [{cat_name}] — {len(blocks)} blocks, {len(images)} images, {len(links)} CTAs"
+        )
 
     except Exception as e:
         print(f"[Worker Error] Unexpected error saving {path}: {e}", flush=True)
         with job_lock:
             shared_state["error_count"] += 1
             shared_state["completed_count"] += 1
-            _add_event(job_id, "page_error", shared_state["completed_count"], total_pages, page_url, f"Error saving {path}: {str(e)[:120]}")
+            cur_completed = shared_state["completed_count"]
+        _add_event(job_id, "page_error", cur_completed, total_pages, page_url, f"Error saving {path}: {str(e)[:120]}")
 
     return parsed_data
 
