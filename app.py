@@ -324,6 +324,7 @@ def _scrape_single_page_worker(p_info, site_id, domain, category_map, openai_mod
         _add_event(job_id, "scrape_sub", shared_state["completed_count"], total_pages, page_url, f"[{path}] {msg}", sub_progress=sub_progress)
 
 
+    try:
         # Polite jitter delay between page requests so workers don't slam Cloudflare concurrently
         time.sleep(random.uniform(0.6, 1.4))
 
