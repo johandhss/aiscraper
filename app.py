@@ -2,6 +2,7 @@ import os
 import re
 import time
 import json
+import random
 import uuid as uuid_lib
 import threading
 import concurrent.futures
@@ -323,7 +324,9 @@ def _scrape_single_page_worker(p_info, site_id, domain, category_map, openai_mod
         _add_event(job_id, "scrape_sub", shared_state["completed_count"], total_pages, page_url, f"[{path}] {msg}", sub_progress=sub_progress)
 
 
-    try:
+        # Polite jitter delay between page requests so workers don't slam Cloudflare concurrently
+        time.sleep(random.uniform(0.6, 1.4))
+
         parsed_data = parse_page(
             url_str=page_url,
             page_id=page_id,

@@ -1,3 +1,4 @@
+import time
 import requests
 import cloudscraper
 import traceback
@@ -102,23 +103,38 @@ def guess_page_type(path, title="", h1=""):
 
 
 def _fetch_html(url, scraper_instance=None):
-    """Fetch HTML with fallback across requests and cloudscraper."""
-    # Attempt 1: Direct requests with modern browser headers
-    try:
-        r = requests.get(url, headers=DEFAULT_HEADERS, timeout=12, allow_redirects=True)
-        if r.status_code == 200 and "text/html" in r.headers.get("Content-Type", ""):
-            return r.text, r.url
-    except Exception as e:
-        pass
+    """Fetch HTML with fallback across requests and cloudscraper and Cloudflare 429/1015 backoff."""
+    scraper = scraper_instance or _get_scraper()
+    for attempt in range(3):
+        # Attempt 1: Cloudscraper
+        try:
+            r = scraper.get(url, timeout=15, allow_redirects=True)
+            if r.status_code == 200 and "text/html" in r.headers.get("Content-Type", ""):
+                if "Error 1015" in r.text or "You are being rate limited" in r.text:
+                    time.sleep(5.0 * (attempt + 1))
+                    continue
+                return r.text, r.url
+            elif r.status_code == 429:
+                time.sleep(4.0 * (attempt + 1))
+                continue
+        except Exception:
+            pass
 
-    # Attempt 2: Cloudscraper (bypasses Cloudflare / anti-bot challenges)
-    try:
-        scraper = scraper_instance or _get_scraper()
-        r = scraper.get(url, timeout=15, allow_redirects=True)
-        if r.status_code == 200 and "text/html" in r.headers.get("Content-Type", ""):
-            return r.text, r.url
-    except Exception as e:
-        print(f"[Crawler] Error fetching {url}: {e}")
+        # Attempt 2: Direct requests
+        try:
+            r = requests.get(url, headers=DEFAULT_HEADERS, timeout=12, allow_redirects=True)
+            if r.status_code == 200 and "text/html" in r.headers.get("Content-Type", ""):
+                if "Error 1015" in r.text or "You are being rate limited" in r.text:
+                    time.sleep(5.0 * (attempt + 1))
+                    continue
+                return r.text, r.url
+            elif r.status_code == 429:
+                time.sleep(4.0 * (attempt + 1))
+                continue
+        except Exception:
+            pass
+
+        time.sleep(1.5 * (attempt + 1))
 
     return None, url
 
@@ -146,6 +162,9 @@ def crawl_site(start_url, max_pages=50, progress_callback=None):
             continue
 
         visited.add(current_url)
+
+        # Polite 350ms delay between crawl requests to prevent Cloudflare rate triggers
+        time.sleep(0.35)
 
         if progress_callback:
             progress_callback("crawl", len(pages_data), max_pages, current_url)
