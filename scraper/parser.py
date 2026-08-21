@@ -187,22 +187,37 @@ def parse_page(url_str, html_content=None, page_id=None, site_domain=None,
     - Extracts CTAs and links
     - Classifies semantics with AI (optional) or fast heuristics
     """
-    if not html_content:
-        try:
-            scraper = _get_scraper()
-            response = scraper.get(url_str, timeout=20)
-            response.raise_for_status()
-            html_content = response.text
-        except Exception as e:
-            return {"error": str(e)}
-
-    # 1. Capture Full-Page Screenshot & Live DOM media
+    # 1. Capture Full-Page Screenshot, Live DOM media & HTML via Playwright
     if progress_callback:
         progress_callback("screenshot", 0, 0, "Capturing full-page screenshot & rendering lazy images...")
 
     screenshot_result = capture_page_screenshot_and_media(url_str, page_id, site_domain)
     screenshot_url = screenshot_result.get("screenshot_url")
     playwright_imgs = screenshot_result.get("rendered_images", [])
+
+    # Prefer full rendered HTML from Playwright (avoids separate HTTP requests and 429 rate limiting)
+    if not html_content:
+        html_content = screenshot_result.get("html_content")
+
+    # Fallback to scraper request with exponential backoff if Playwright didn't return HTML
+    if not html_content:
+        scraper = _get_scraper()
+        for attempt in range(3):
+            try:
+                response = scraper.get(url_str, timeout=15)
+                if response.status_code == 429:
+                    time.sleep(2.0 * (attempt + 1))
+                    continue
+                response.raise_for_status()
+                html_content = response.text
+                break
+            except Exception as e:
+                if attempt == 2:
+                    return {"error": f"Rate limited / error loading page: {e}"}
+                time.sleep(1.5 * (attempt + 1))
+
+    if not html_content:
+        return {"error": f"Failed to load content for {url_str}"}
 
     soup = BeautifulSoup(html_content, "lxml")
 

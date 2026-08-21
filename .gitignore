@@ -32,3 +32,6 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Google Cloud Credentials
+gcp-credentials.json

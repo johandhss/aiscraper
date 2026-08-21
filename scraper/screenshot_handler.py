@@ -16,6 +16,7 @@ def capture_page_screenshot_and_media(page_url, page_id, site_domain):
     """
     screenshot_url = None
     rendered_images = []
+    html_content = ""
     browser = None
 
     try:
@@ -217,6 +218,12 @@ def capture_page_screenshot_and_media(page_url, page_id, site_domain):
             except Exception as e:
                 print(f"[Screenshot] Error extracting DOM images ({page_url}): {e}", flush=True)
 
+            # 3. Extract Full Rendered HTML directly from Playwright
+            try:
+                html_content = page.content()
+            except Exception as e:
+                print(f"[Screenshot] Error extracting page HTML ({page_url}): {e}", flush=True)
+
             try:
                 browser.close()
                 browser = None
@@ -234,5 +241,6 @@ def capture_page_screenshot_and_media(page_url, page_id, site_domain):
 
     return {
         "screenshot_url": screenshot_url,
-        "rendered_images": rendered_images
+        "rendered_images": rendered_images,
+        "html_content": html_content
     }
