@@ -43,16 +43,7 @@ def capture_page_screenshot_and_media(page_url, page_id, site_domain):
                 locale="nl-NL",
                 timezone_id="Europe/Amsterdam",
                 extra_http_headers={
-                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-                    "Accept-Language": "nl-NL,nl;q=0.9,en-US;q=0.8,en;q=0.7",
-                    "Sec-Ch-Ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-                    "Sec-Ch-Ua-Mobile": "?0",
-                    "Sec-Ch-Ua-Platform": '"macOS"',
-                    "Sec-Fetch-Dest": "document",
-                    "Sec-Fetch-Mode": "navigate",
-                    "Sec-Fetch-Site": "none",
-                    "Sec-Fetch-User": "?1",
-                    "Upgrade-Insecure-Requests": "1"
+                    "Accept-Language": "nl-NL,nl;q=0.9,en-US;q=0.8,en;q=0.7"
                 }
             )
             page = context.new_page()
@@ -65,10 +56,14 @@ def capture_page_screenshot_and_media(page_url, page_id, site_domain):
                 Object.defineProperty(navigator, 'languages', { get: () => ['nl-NL', 'nl', 'en-US', 'en'] });
             """)
 
-            # Navigate with retry and Cloudflare 1015 rate-limit backoff
+            # Navigate with retry and wait for full CSS/image loading
             for nav_attempt in range(3):
                 try:
-                    page.goto(page_url, wait_until="domcontentloaded", timeout=20000)
+                    page.goto(page_url, wait_until="load", timeout=25000)
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=5000)
+                    except Exception:
+                        pass
                     time.sleep(1.0)
                     
                     # Detect Cloudflare Rate Limit 1015
@@ -84,13 +79,13 @@ def capture_page_screenshot_and_media(page_url, page_id, site_domain):
                     print(f"[Screenshot] Navigation issue on {page_url} (attempt {nav_attempt+1}): {e}", flush=True)
                     time.sleep(2)
 
-            # Fast smooth scroll to trigger lazy-loaded images without stalling
+            # Smooth scroll to trigger lazy-loaded images without stalling
             try:
                 page.evaluate("""async () => {
                     await new Promise((resolve) => {
                         let totalHeight = 0;
-                        const distance = 800;
-                        const maxScrolls = 25;
+                        const distance = 600;
+                        const maxScrolls = 20;
                         let count = 0;
                         const timer = setInterval(() => {
                             const scrollHeight = document.body.scrollHeight;
@@ -101,12 +96,12 @@ def capture_page_screenshot_and_media(page_url, page_id, site_domain):
                                 clearInterval(timer);
                                 resolve();
                             }
-                        }, 50);
+                        }, 60);
                     });
                 }""")
-                time.sleep(0.6)
+                time.sleep(1.0)
                 page.evaluate("window.scrollTo(0, 0)")
-                time.sleep(0.3)
+                time.sleep(1.0)
             except Exception:
                 pass
 
