@@ -345,69 +345,86 @@ def _scrape_single_page_worker(p_info, site_id, domain, category_map, openai_mod
             _add_event(job_id, "page_error", shared_state["completed_count"], total_pages, page_url, f"Error on {path}: {parsed_data['error'][:120]}")
         return None
 
-    # Extract Site Navigation (thread-safe one-time execution)
-    with job_lock:
-        if not shared_state["nav_extracted"] and parsed_data.get("html_content"):
-            try:
-                nav_data = extract_site_navigation(parsed_data["html_content"], page_url)
-                for menu_type, items in nav_data.items():
-                    upsert_navigation(site_id, menu_type, items)
-                shared_state["nav_extracted"] = True
-            except Exception as e:
-                print(f"Error extracting navigation: {e}")
+    try:
+        # Extract Site Navigation (thread-safe one-time execution)
+        with job_lock:
+            if not shared_state["nav_extracted"] and parsed_data.get("html_content"):
+                try:
+                    nav_data = extract_site_navigation(parsed_data["html_content"], page_url)
+                    for menu_type, items in nav_data.items():
+                        upsert_navigation(site_id, menu_type, items)
+                    shared_state["nav_extracted"] = True
+                except Exception as e:
+                    print(f"Error extracting navigation: {e}", flush=True)
 
-    # Update page details with screenshot
-    upsert_page(
-        site_id=site_id,
-        url_str=page_url,
-        path=path,
-        title=parsed_data.get("title", ""),
-        meta_description=parsed_data.get("meta_description", ""),
-        page_type=page_type,
-        category_id=cat_id,
-        scrape_instructions=instructions,
-        status="scraped",
-        raw_markdown=parsed_data.get("raw_markdown", ""),
-        screenshot_url=parsed_data.get("screenshot_url")
-    )
-
-    # Insert Content Blocks
-    blocks = parsed_data.get("blocks", [])
-    if blocks:
-        for b in blocks:
-            b["page_id"] = page_id
-            b["category_id"] = cat_id
-        delete_page_blocks(page_id)
-        insert_content_blocks(blocks)
-
-    # Insert Images
-    images = parsed_data.get("images", [])
-    if images:
-        for img in images:
-            img["category_id"] = cat_id
-        delete_page_images(page_id)
-        insert_images(images)
-
-    # Insert Links
-    links = parsed_data.get("links", [])
-    if links:
-        delete_page_links(page_id)
-        insert_page_links(links)
-
-    with job_lock:
-        shared_state["scraped_count"] += 1
-        shared_state["completed_count"] += 1
-        if cat_name in shared_state["scraped_pages_by_category"]:
-            shared_state["scraped_pages_by_category"][cat_name].append({
-                "title": parsed_data.get("title", ""),
-                "path": path,
-                "raw_markdown": parsed_data.get("raw_markdown", "")
-            })
-
-        _add_event(
-            job_id, "page_done", shared_state["completed_count"], total_pages, page_url,
-            f"✓ ({shared_state['completed_count']}/{total_pages}) {path} [{cat_name}] — {len(blocks)} blocks, {len(images)} images, {len(links)} CTAs"
+        # Update page details with screenshot
+        upsert_page(
+            site_id=site_id,
+            url_str=page_url,
+            path=path,
+            title=parsed_data.get("title", ""),
+            meta_description=parsed_data.get("meta_description", ""),
+            page_type=page_type,
+            category_id=cat_id,
+            scrape_instructions=instructions,
+            status="scraped",
+            raw_markdown=parsed_data.get("raw_markdown", ""),
+            screenshot_url=parsed_data.get("screenshot_url")
         )
+
+        # Insert Content Blocks
+        blocks = parsed_data.get("blocks", [])
+        if blocks:
+            for b in blocks:
+                b["page_id"] = page_id
+                b["category_id"] = cat_id
+            try:
+                delete_page_blocks(page_id)
+                insert_content_blocks(blocks)
+            except Exception as e:
+                print(f"Error saving blocks for {path}: {e}", flush=True)
+
+        # Insert Images
+        images = parsed_data.get("images", [])
+        if images:
+            for img in images:
+                img["category_id"] = cat_id
+            try:
+                delete_page_images(page_id)
+                insert_images(images)
+            except Exception as e:
+                print(f"Error saving images for {path}: {e}", flush=True)
+
+        # Insert Links
+        links = parsed_data.get("links", [])
+        if links:
+            try:
+                delete_page_links(page_id)
+                insert_page_links(links)
+            except Exception as e:
+                print(f"Error saving links for {path}: {e}", flush=True)
+
+        with job_lock:
+            shared_state["scraped_count"] += 1
+            shared_state["completed_count"] += 1
+            if cat_name in shared_state["scraped_pages_by_category"]:
+                shared_state["scraped_pages_by_category"][cat_name].append({
+                    "title": parsed_data.get("title", ""),
+                    "path": path,
+                    "raw_markdown": parsed_data.get("raw_markdown", "")
+                })
+
+            _add_event(
+                job_id, "page_done", shared_state["completed_count"], total_pages, page_url,
+                f"✓ ({shared_state['completed_count']}/{total_pages}) {path} [{cat_name}] — {len(blocks)} blocks, {len(images)} images, {len(links)} CTAs"
+            )
+
+    except Exception as e:
+        print(f"[Worker Error] Unexpected error saving {path}: {e}", flush=True)
+        with job_lock:
+            shared_state["error_count"] += 1
+            shared_state["completed_count"] += 1
+            _add_event(job_id, "page_error", shared_state["completed_count"], total_pages, page_url, f"Error saving {path}: {str(e)[:120]}")
 
     return parsed_data
 
