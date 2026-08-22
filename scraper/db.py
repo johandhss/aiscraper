@@ -15,13 +15,21 @@ _thread_local = threading.local()
 def get_supabase() -> Client:
     """Return a thread-isolated Supabase client to prevent SSL socket collisions across parallel workers."""
     if not hasattr(_thread_local, "client") or _thread_local.client is None:
-        if url and key:
+        supabase_url = os.environ.get("SUPABASE_URL") or url
+        supabase_key = os.environ.get("SUPABASE_KEY") or key
+        if not supabase_url or not supabase_key:
+            load_dotenv(override=True)
+            supabase_url = os.environ.get("SUPABASE_URL", "")
+            supabase_key = os.environ.get("SUPABASE_KEY", "")
+
+        if supabase_url and supabase_key:
             try:
-                _thread_local.client = create_client(url, key)
+                _thread_local.client = create_client(supabase_url, supabase_key)
             except Exception as e:
-                print(f"Failed to create thread Supabase client: {e}")
+                print(f"Failed to create thread Supabase client: {e}", flush=True)
                 return None
         else:
+            print("ERROR: SUPABASE_URL or SUPABASE_KEY missing in runtime environment!", flush=True)
             return None
     return _thread_local.client
 

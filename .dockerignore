@@ -8,8 +8,6 @@ __pycache__
 env/
 venv/
 .venv/
-.env
-.env.local
 .DS_Store
 *.log
 .system_generated/
