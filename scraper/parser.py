@@ -178,7 +178,8 @@ def html_to_markdown(body_element):
 def parse_page(url_str, html_content=None, page_id=None, site_domain=None,
                page_type="", category_id=None, category_name="Algemeen",
                scrape_instructions="", openai_model="gpt-4o-mini",
-               openai_api_key=None, progress_callback=None, enable_ai=True):
+               openai_api_key=None, progress_callback=None, enable_ai=True,
+               scrape_mode="stealth"):
     """
     Parse a webpage:
     - Captures full-page screenshot using Playwright
@@ -191,7 +192,7 @@ def parse_page(url_str, html_content=None, page_id=None, site_domain=None,
     if progress_callback:
         progress_callback("screenshot", 0, 0, "Capturing full-page screenshot & rendering lazy images...")
 
-    screenshot_result = capture_page_screenshot_and_media(url_str, page_id, site_domain)
+    screenshot_result = capture_page_screenshot_and_media(url_str, page_id, site_domain, scrape_mode=scrape_mode)
     screenshot_url = screenshot_result.get("screenshot_url")
     playwright_imgs = screenshot_result.get("rendered_images", [])
 

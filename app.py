@@ -119,13 +119,14 @@ def save_api_key():
 
 # --- STEP 1: CRAWL, URL DISCOVERY & CATEGORY MAPPING ---
 @app.route("/crawl", methods=["POST"])
-def crawl():
+def crawl_site_route():
     url = request.form.get("url", "").strip()
-    max_pages = request.form.get("max_pages", "30")
+    max_pages = request.form.get("max_pages", 30)
     openai_model = request.form.get("openai_model", "gpt-4o-mini")
     categories_input = request.form.get("categories", "").strip()
     business_context = request.form.get("business_context", "").strip()
     enable_ai = request.form.get("enable_ai") in ["1", "true", "on", "yes"]
+    scrape_mode = request.form.get("scrape_mode", "stealth")
 
     if not url:
         flash("Website URL is required", "error")
@@ -157,7 +158,7 @@ def crawl():
         category_list = ["Hoofdaanbod", "Algemeen"]
 
     # Discover URLs on website with page titles and H1s
-    pages_preview = crawl_site(url, max_pages=max_pages)
+    pages_preview = crawl_site(url, max_pages=max_pages, scrape_mode=scrape_mode)
     if not pages_preview:
         flash(f"Could not discover any pages on {domain}. Please verify the URL.", "error")
         return redirect(url_for("index"))
@@ -198,7 +199,8 @@ def crawl():
         models=models,
         selected_model=openai_model,
         has_openai_key=has_openai_key,
-        enable_ai=enable_ai
+        enable_ai=enable_ai,
+        scrape_mode=scrape_mode
     )
 
 
@@ -212,6 +214,7 @@ def scrape_execute():
     global_instructions = request.form.get("global_instructions", "").strip()
     all_categories_str = request.form.get("all_categories", "").strip()
     enable_ai = request.form.get("enable_ai") in ["1", "true", "on", "yes"]
+    scrape_mode = request.form.get("scrape_mode", "stealth")
 
     # Collect categories
     categories_set = []
@@ -257,7 +260,7 @@ def scrape_execute():
 
     thread = threading.Thread(
         target=_run_full_scrape_job,
-        args=(job_id, start_url, domain, pages_to_scrape, categories_set, business_context, openai_model, enable_ai),
+        args=(job_id, start_url, domain, pages_to_scrape, categories_set, business_context, openai_model, enable_ai, scrape_mode),
         daemon=True
     )
     thread.start()
@@ -282,7 +285,7 @@ def _add_event(job_id, phase, current, total, url, message="", sub_progress=0.0)
 
 
 
-def _scrape_single_page_worker(p_info, site_id, domain, category_map, openai_model, job_id, total_pages, shared_state, enable_ai=True):
+def _scrape_single_page_worker(p_info, site_id, domain, category_map, openai_model, job_id, total_pages, shared_state, enable_ai=True, scrape_mode="stealth"):
     """Worker task to scrape a single page concurrently with thread-safe progress reporting."""
     page_url = p_info["url"]
     path = p_info["path"]
@@ -325,8 +328,13 @@ def _scrape_single_page_worker(p_info, site_id, domain, category_map, openai_mod
 
 
     try:
-        # Polite jitter delay between page requests so workers don't slam Cloudflare concurrently
-        time.sleep(random.uniform(0.6, 1.4))
+        # Polite jitter delay between page requests based on mode
+        if scrape_mode == "stealth":
+            time.sleep(random.uniform(2.5, 3.8))
+        elif scrape_mode == "turbo":
+            time.sleep(random.uniform(0.1, 0.3))
+        else: # balanced
+            time.sleep(random.uniform(0.8, 1.6))
 
         parsed_data = parse_page(
             url_str=page_url,
@@ -338,7 +346,8 @@ def _scrape_single_page_worker(p_info, site_id, domain, category_map, openai_mod
             scrape_instructions=instructions,
             openai_model=openai_model,
             progress_callback=page_progress_callback,
-            enable_ai=enable_ai
+            enable_ai=enable_ai,
+            scrape_mode=scrape_mode
         )
     except Exception as e:
         parsed_data = {"error": str(e)}
@@ -438,11 +447,22 @@ def _scrape_single_page_worker(p_info, site_id, domain, category_map, openai_mod
     return parsed_data
 
 
-def _run_full_scrape_job(job_id, start_url, domain, pages_to_scrape, categories_list, business_context, openai_model, enable_ai=True):
+def _run_full_scrape_job(job_id, start_url, domain, pages_to_scrape, categories_list, business_context, openai_model, enable_ai=True, scrape_mode="stealth"):
     try:
         total_pages = len(pages_to_scrape)
-        concurrency = get_max_concurrent_scrapers()
-        _add_event(job_id, "init", 0, total_pages, start_url, f"Initializing parallel scrape engine for {domain} ({concurrency} workers across {os.cpu_count() or 'auto'} vCPUs)...")
+        
+        # Adaptive concurrency based on scrape mode
+        if scrape_mode == "stealth":
+            concurrency = 1
+            mode_desc = "🛡️ Rustig & Stealth (1 worker, 3s pauzes tegen rate limits)"
+        elif scrape_mode == "turbo":
+            concurrency = min(get_max_concurrent_scrapers(), 4)
+            mode_desc = "🚀 Turbo (4 workers, geen wachttijd)"
+        else: # balanced
+            concurrency = min(get_max_concurrent_scrapers(), 2)
+            mode_desc = "⚡ Gebalanceerd (2 workers, 1s pauze)"
+
+        _add_event(job_id, "init", 0, total_pages, start_url, f"Scrape Modus: {mode_desc} voor {domain} ({total_pages} pagina's)...")
 
         # 1. Upsert Site record
         site = upsert_site(
@@ -485,13 +505,13 @@ def _run_full_scrape_job(job_id, start_url, domain, pages_to_scrape, categories_
         }
 
         # 3. Parallel Multi-Worker Scraping
-        _add_event(job_id, "parallel_start", 0, total_pages, start_url, f"⚡ Launched {concurrency} parallel scraping workers...")
+        _add_event(job_id, "parallel_start", 0, total_pages, start_url, f"⚡ Gestart met {concurrency} scraping worker(s) [{mode_desc}]...")
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=concurrency) as executor:
             futures = [
                 executor.submit(
                     _scrape_single_page_worker,
-                    p_info, site_id, domain, category_map, openai_model, job_id, total_pages, shared_state, enable_ai
+                    p_info, site_id, domain, category_map, openai_model, job_id, total_pages, shared_state, enable_ai, scrape_mode
                 )
                 for p_info in pages_to_scrape
             ]

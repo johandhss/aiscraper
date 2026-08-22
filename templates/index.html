@@ -106,7 +106,22 @@
             </div>
         </div>
 
-        <!-- Row 3: AI Toggle -->
+        <!-- Row 3: Scrape Mode & Anti-Bot Protection -->
+        <div class="form-row" style="margin-bottom: 1.25rem;">
+            <div class="form-group" style="flex: 1;">
+                <label for="scrape_mode">🐢/⚡ Scrape Modus & Anti-Bot Bescherming</label>
+                <select name="scrape_mode" id="scrape_mode" class="custom-select">
+                    <option value="stealth" selected>🛡️ Rustig & Stealth (Aanbevolen bij Cloudflare / Rate-Limits — 1 worker, 3s pauzes)</option>
+                    <option value="balanced">⚡ Gebalanceerd (Standaard websites — 2 workers, 1s pauze)</option>
+                    <option value="turbo">🚀 Turbo / Snel (Simpele sites zonder bot-protectie — 4 workers)</option>
+                </select>
+                <span class="text-muted" style="font-size: 0.75rem;">
+                    Kies <strong>Rustig & Stealth</strong> voor sites met Cloudflare of strikte rate limits (zoals me-studio.nl) om 429 Error 1015 blokkades te voorkomen.
+                </span>
+            </div>
+        </div>
+
+        <!-- Row 4: AI Toggle -->
         <div style="margin-bottom: 1.25rem; display: flex; align-items: center; justify-content: space-between; background: rgba(99, 102, 241, 0.05); padding: 0.75rem 1rem; border-radius: 6px; border: 1px solid rgba(99, 102, 241, 0.15);">
             <label style="margin: 0; display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem;">
                 <input type="checkbox" name="enable_ai" id="enable_ai" value="1" style="width: auto; margin: 0;">

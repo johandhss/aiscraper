@@ -134,12 +134,12 @@ def _fetch_html(url, scraper_instance=None):
         except Exception:
             pass
 
-        time.sleep(1.5 * (attempt + 1))
+        time.sleep(2.0 * (attempt + 1))
 
     return None, url
 
 
-def crawl_site(start_url, max_pages=50, progress_callback=None):
+def crawl_site(start_url, max_pages=50, progress_callback=None, scrape_mode="stealth"):
     """
     BFS crawl a website with www-agnostic domain matching and multi-engine HTTP fetch.
     Returns a list of dicts with URL, path, title, h1, and meta_description.
@@ -155,6 +155,14 @@ def crawl_site(start_url, max_pages=50, progress_callback=None):
     queue = [normalize_url(start_url)]
     pages_data = []
 
+    # Adaptive crawl delay per mode
+    if scrape_mode == "stealth":
+        crawl_delay = 1.2
+    elif scrape_mode == "turbo":
+        crawl_delay = 0.1
+    else:
+        crawl_delay = 0.45
+
     while queue and len(pages_data) < max_pages:
         current_url = queue.pop(0)
 
@@ -163,8 +171,8 @@ def crawl_site(start_url, max_pages=50, progress_callback=None):
 
         visited.add(current_url)
 
-        # Polite 350ms delay between crawl requests to prevent Cloudflare rate triggers
-        time.sleep(0.35)
+        # Adaptive delay between crawl requests
+        time.sleep(crawl_delay)
 
         if progress_callback:
             progress_callback("crawl", len(pages_data), max_pages, current_url)

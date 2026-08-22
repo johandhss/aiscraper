@@ -41,7 +41,15 @@
             </label>
         </div>
         <div class="form-row" style="margin-bottom: 0.5rem;">
-            <div class="form-group" style="flex: 1.2;">
+            <div class="form-group" style="flex: 1.3;">
+                <label for="scrape_mode">🐢/⚡ Scrape Modus & Tempo</label>
+                <select name="scrape_mode" id="scrape_mode" class="custom-select">
+                    <option value="stealth" {% if scrape_mode == 'stealth' or not scrape_mode %}selected{% endif %}>🛡️ Rustig & Stealth (Cloudflare / Rate-limits — 1 worker, 3s pauzes)</option>
+                    <option value="balanced" {% if scrape_mode == 'balanced' %}selected{% endif %}>⚡ Gebalanceerd (2 workers, 1s pauze)</option>
+                    <option value="turbo" {% if scrape_mode == 'turbo' %}selected{% endif %}>🚀 Turbo / Snel (4 workers, geen wachttijd)</option>
+                </select>
+            </div>
+            <div class="form-group" style="flex: 1.1;">
                 <label for="openai_model">OpenAI Classifier Model</label>
                 <select name="openai_model" id="openai_model" class="custom-select">
                     {% for m in models %}
@@ -51,7 +59,7 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="form-group" style="flex: 2;">
+            <div class="form-group" style="flex: 1.6;">
                 <label for="global_instructions">Global Scraping Instructions (Optional)</label>
                 <input type="text" name="global_instructions" id="global_instructions"
                        placeholder="e.g. Extract exact pricing details, studio specifications, and booking CTAs">

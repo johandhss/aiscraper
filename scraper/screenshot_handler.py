@@ -5,7 +5,7 @@ from playwright.sync_api import sync_playwright
 from scraper.db import upload_image_to_storage
 
 
-def capture_page_screenshot_and_media(page_url, page_id, site_domain):
+def capture_page_screenshot_and_media(page_url, page_id, site_domain, scrape_mode="stealth"):
     """
     Use Playwright to:
     1. Render the live page with full JavaScript execution.
@@ -70,7 +70,7 @@ def capture_page_screenshot_and_media(page_url, page_id, site_domain):
                     title_text = page.title() or ""
                     body_text = page.inner_text("body") if page.query_selector("body") else ""
                     if "Error 1015" in title_text or "Error 1015" in body_text or "You are being rate limited" in body_text:
-                        wait_sec = 6 + nav_attempt * 4
+                        wait_sec = 12 + nav_attempt * 8 if scrape_mode == "stealth" else (6 + nav_attempt * 4)
                         print(f"[Cloudflare 1015] Rate limit detected on {page_url}. Backing off {wait_sec}s (attempt {nav_attempt+1}/3)...", flush=True)
                         time.sleep(wait_sec)
                         continue
